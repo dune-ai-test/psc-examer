@@ -72,7 +72,7 @@ class NeonRepository(
     suspend fun testConnection(connectionString: String, endpoint: String): String =
         withContext(Dispatchers.IO) {
             val started = System.currentTimeMillis()
-            val result = execute(connectionString, endpoint, "SELECT 1 AS ok", emptyList())
+            val result = query(connectionString, endpoint, "SELECT 1 AS ok")
             val elapsed = System.currentTimeMillis() - started
             if (result.rows.isEmpty()) {
                 throw NeonException("Neon connected but returned no rows. Check that the database is ready.")

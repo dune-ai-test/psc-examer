@@ -164,7 +164,7 @@ class GeminiRepository(
                 .trim()
                 .uppercase()
                 .firstOrNull()
-                ?.takeIf { it in LETTERS }
+                ?.takeIf { it.toString() in LETTERS }
                 ?.toString()
                 ?: "A"
 

@@ -80,6 +80,7 @@ import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
 import com.padanam.psc.ui.theme.Orange
 import com.padanam.psc.ui.theme.OrangeSoft
+import com.padanam.psc.ui.theme.SurfaceMuted
 import com.padanam.psc.ui.theme.SurfaceWhite
 import com.padanam.psc.ui.theme.Success
 import com.padanam.psc.ui.theme.SuccessBright
