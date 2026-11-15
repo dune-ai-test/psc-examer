@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cloud">#F2F4F9</color>
+    <color name="navy">#12172B</color>
+    <color name="indigo">#5B4BF6</color>
+    <color name="white">#FFFFFF</color>
+    <color name="transparent">#00000000</color>
+</resources>

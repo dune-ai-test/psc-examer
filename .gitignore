@@ -1,0 +1,26 @@
+# Design references and analysis scratch — not part of the Android app
+html/
+tools/
+
+# Android secrets (put your real keys here locally, never commit them)
+android/local.properties
+
+# Gradle and Android build output
+.gradle/
+build/
+android/.kotlin/
+android/captures/
+
+# IDE
+.idea/
+*.iml
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Signing material and packaged apps
+*.jks
+*.keystore
+*.apk
+*.aab

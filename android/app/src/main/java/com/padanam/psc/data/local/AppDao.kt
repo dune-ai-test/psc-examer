@@ -1,0 +1,162 @@
+package com.padanam.psc.data.local
+
+import androidx.room.Dao
+import androidx.room.Embedded
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Transaction
+import com.padanam.psc.data.model.SetSummary
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface AppDao {
+
+    // ---------------------------------------------------------------- sets
+    @Query("SELECT * FROM sets ORDER BY createdAt DESC")
+    fun observeSets(): Flow<List<SetEntity>>
+
+    @Query(
+        """
+        SELECT s.*,
+            (SELECT COUNT(*) FROM questions q WHERE q.setId = s.id) AS questionCount,
+            (SELECT MAX(a.scorePercent) FROM attempts a WHERE a.setId = s.id) AS bestScore,
+            (SELECT COUNT(*) FROM attempts a WHERE a.setId = s.id) AS attemptCount,
+            (SELECT MAX(a.completedAt) FROM attempts a WHERE a.setId = s.id) AS lastAttemptAt
+        FROM sets s
+        ORDER BY s.createdAt DESC
+        """
+    )
+    fun observeSetSummaries(): Flow<List<SetSummary>>
+
+    @Query(
+        """
+        SELECT s.*,
+            (SELECT COUNT(*) FROM questions q WHERE q.setId = s.id) AS questionCount,
+            (SELECT MAX(a.scorePercent) FROM attempts a WHERE a.setId = s.id) AS bestScore,
+            (SELECT COUNT(*) FROM attempts a WHERE a.setId = s.id) AS attemptCount,
+            (SELECT MAX(a.completedAt) FROM attempts a WHERE a.setId = s.id) AS lastAttemptAt
+        FROM sets s
+        WHERE s.id = :setId
+        """
+    )
+    fun observeSetSummary(setId: String): Flow<SetSummary?>
+
+    @Query("SELECT * FROM sets WHERE id = :setId")
+    suspend fun getSet(setId: String): SetEntity?
+
+    @Query("SELECT COUNT(*) FROM sets")
+    fun observeSetCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM questions")
+    fun observeQuestionCount(): Flow<Int>
+
+    @Query("SELECT * FROM sets ORDER BY createdAt DESC")
+    suspend fun setsOnce(): List<SetEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSet(set: SetEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSets(sets: List<SetEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertRemoteSets(sets: List<SetEntity>): List<Long>
+
+    @Query("UPDATE sets SET synced = 1 WHERE id = :id")
+    suspend fun markSetSynced(id: String)
+
+    @Query("DELETE FROM sets WHERE id = :setId")
+    suspend fun deleteSetById(setId: String)
+
+    @Query("SELECT * FROM sets WHERE synced = 0")
+    suspend fun pendingSets(): List<SetEntity>
+
+    // ----------------------------------------------------------- questions
+    @Query("SELECT * FROM questions WHERE setId = :setId ORDER BY `order` ASC")
+    fun observeQuestions(setId: String): Flow<List<QuestionEntity>>
+
+    @Query("SELECT * FROM questions WHERE setId = :setId ORDER BY `order` ASC")
+    suspend fun questionsOnce(setId: String): List<QuestionEntity>
+
+    @Query("SELECT * FROM questions WHERE id IN (:ids)")
+    suspend fun questionsByIds(ids: List<String>): List<QuestionEntity>
+
+    @Query("SELECT * FROM questions ORDER BY createdAt ASC")
+    suspend fun allQuestionsOnce(): List<QuestionEntity>
+
+    @Query("SELECT * FROM questions ORDER BY createdAt ASC")
+    fun observeAllQuestions(): Flow<List<QuestionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertQuestions(questions: List<QuestionEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertRemoteQuestions(questions: List<QuestionEntity>): List<Long>
+
+    @Query("UPDATE questions SET synced = 1 WHERE id = :id")
+    suspend fun markQuestionSynced(id: String)
+
+    @Query("SELECT * FROM questions WHERE synced = 0")
+    suspend fun pendingQuestions(): List<QuestionEntity>
+
+    @Query("DELETE FROM questions WHERE setId = :setId")
+    suspend fun deleteQuestionsForSet(setId: String)
+
+    @Transaction
+    suspend fun insertSetWithQuestions(set: SetEntity, questions: List<QuestionEntity>) {
+        insertSet(set)
+        insertQuestions(questions)
+    }
+
+    @Transaction
+    suspend fun deleteSetWithQuestions(setId: String) {
+        deleteQuestionsForSet(setId)
+        deleteSetById(setId)
+    }
+
+    // ------------------------------------------------------------- attempts
+    @Query("SELECT * FROM attempts ORDER BY completedAt DESC")
+    fun observeAttempts(): Flow<List<AttemptEntity>>
+
+    @Query("SELECT * FROM attempts ORDER BY completedAt DESC")
+    suspend fun allAttemptsOnce(): List<AttemptEntity>
+
+    @Query("SELECT * FROM attempts WHERE id = :attemptId")
+    fun observeAttempt(attemptId: String): Flow<AttemptEntity?>
+
+    @Query("SELECT * FROM attempts WHERE id = :attemptId")
+    suspend fun getAttempt(attemptId: String): AttemptEntity?
+
+    @Query("SELECT * FROM attempts WHERE setId = :setId ORDER BY completedAt DESC")
+    suspend fun attemptsForSet(setId: String): List<AttemptEntity>
+
+    @Query("SELECT * FROM attempts WHERE synced = 0")
+    suspend fun pendingAttempts(): List<AttemptEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAttempt(attempt: AttemptEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertRemoteAttempts(attempts: List<AttemptEntity>): List<Long>
+
+    @Query("UPDATE attempts SET synced = 1 WHERE id = :id")
+    suspend fun markAttemptSynced(id: String)
+
+    // --------------------------------------------------------------- reset
+    @Query("DELETE FROM attempts")
+    suspend fun deleteAllAttempts()
+
+    @Query("DELETE FROM questions")
+    suspend fun deleteAllQuestions()
+
+    @Query("DELETE FROM sets")
+    suspend fun deleteAllSets()
+
+    @Transaction
+    suspend fun resetLibrary() {
+        deleteAllAttempts()
+        deleteAllQuestions()
+        deleteAllSets()
+    }
+}
