@@ -15,6 +15,10 @@ android/captures/
 .idea/
 *.iml
 
+# Cloudflare Pages local development
+.dev.vars*
+.wrangler/
+
 # OS noise
 .DS_Store
 Thumbs.db
