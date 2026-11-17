@@ -4,7 +4,7 @@
    ========================================================= */
 'use strict';
 
-var CACHE = 'padanam-web-v9';
+var CACHE = 'padanam-web-v10';
 var ASSETS = [
   './',
   './index.html',
@@ -18,6 +18,8 @@ var ASSETS = [
   './js/theme.js',
   './js/gemini.js',
   './js/sync.js',
+  './js/auth.js',
+  './js/admin.js',
   './js/views.js',
   './js/app.js',
   './assets/favicon.svg',

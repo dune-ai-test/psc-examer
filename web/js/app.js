@@ -56,6 +56,10 @@
     if (parts.length === 1 && parts[0] === 'progress') return { name: 'progress', params: params, query: query };
     if (parts.length === 1 && parts[0] === 'profile') return { name: 'profile', params: params, query: query };
     if (parts.length === 1 && parts[0] === 'settings') return { name: 'settings', params: params, query: query };
+    if (parts.length === 1 && parts[0] === 'admin') return { name: 'admin', params: params, query: query };
+    if (parts.length === 1 && (parts[0] === 'login' || parts[0] === 'setup')) {
+      return { name: parts[0], params: params, query: query };
+    }
 
     if (parts[0] === 'set' && parts[1]) {
       params.id = parts[1];
@@ -74,6 +78,19 @@
     }
 
     return { name: 'notFound', params: params, query: query };
+  }
+
+  function isAdmin() {
+    return !!(A.auth && A.auth.isAdmin());
+  }
+
+  function adminOnlyView() {
+    return {
+      name: 'notFound',
+      nav: 'library',
+      html: views.notFound('This page is for the administrator. Scanning, library changes and account management are handled from the admin console.'),
+      title: 'Admins only — Padanam'
+    };
   }
 
   function routeView(route) {
@@ -100,12 +117,14 @@
           title: (A.getSet(route.params.id) ? A.getSet(route.params.id).title : 'Set') + ' — Padanam'
         };
       case 'scan':
-        return {
-          name: 'scan',
-          nav: 'scan',
-          html: views.scan(),
-          title: 'Scan a paper — Padanam'
-        };
+        return isAdmin()
+          ? {
+              name: 'scan',
+              nav: 'scan',
+              html: views.scan(),
+              title: 'Scan a paper — Padanam'
+            }
+          : adminOnlyView();
       case 'setup':
         return {
           name: 'setup',
@@ -148,6 +167,22 @@
           html: views.settings(),
           title: 'Settings — Padanam'
         };
+      case 'admin':
+        return isAdmin()
+          ? {
+              name: 'admin',
+              nav: 'admin',
+              html: views.admin(),
+              title: 'Admin console — Padanam'
+            }
+          : adminOnlyView();
+      case 'login':
+        return {
+          name: 'home',
+          nav: 'home',
+          html: views.home(),
+          title: 'Padanam — PSC practice, in your browser'
+        };
       default:
         return {
           name: 'notFound',
@@ -182,9 +217,41 @@
       el.style.width = goal.pct + '%';
     });
 
+    var account = A.auth ? A.auth.user() : null;
     var name = String(A.state.profile.name || '').trim();
+    if (!name && account) name = String(account.displayName || account.username || '').trim();
     setBound('avatar', A.initials(name));
     setBound('user-name', name || 'Set up profile');
+    setBound('user-role', account
+      ? (account.role === 'admin' ? 'Administrator' : 'Learner')
+      : 'Local mode');
+
+    document.querySelectorAll('[data-admin-only]').forEach(function (el) {
+      el.hidden = !isAdmin();
+    });
+  }
+
+  function authGateView() {
+    if (!A.auth) return null;
+    if (A.auth.mode() === 'setup') {
+      return { name: 'setup', title: 'Setup — Padanam', html: views.setup() };
+    }
+    if (A.auth.requiresLogin()) {
+      return { name: 'login', title: 'Sign in — Padanam', html: views.login() };
+    }
+    return null;
+  }
+
+  function ensureAdminData() {
+    if (!A.admin) return;
+    if (!A.auth || !A.auth.isAccount()) return;
+    var info = A.admin.info();
+    if (info.checked || info.loading) return;
+    A.admin.load().then(function () {
+      if (current && current.name === 'admin') render({ preserveScroll: true });
+    }).catch(function () {
+      if (current && current.name === 'admin') render({ preserveScroll: true });
+    });
   }
 
   function render(opts) {
@@ -194,18 +261,24 @@
 
     var route = parseRoute();
     var scroll = window.scrollY || window.pageYOffset || 0;
+    var gate = authGateView();
     var view;
 
-    try {
-      view = routeView(route);
-    } catch (err) {
-      console.error('Padanam view error', err);
-      view = {
-        name: 'notFound',
-        nav: '',
-        html: views.notFound('Something went wrong while opening this page. Go back home and try again.'),
-        title: 'Something went wrong — Padanam'
-      };
+    if (gate) {
+      view = { name: gate.name, nav: '', html: gate.html, title: gate.title };
+    } else {
+      if (route.name === 'admin' && isAdmin()) ensureAdminData();
+      try {
+        view = routeView(route);
+      } catch (err) {
+        console.error('Padanam view error', err);
+        view = {
+          name: 'notFound',
+          nav: '',
+          html: views.notFound('Something went wrong while opening this page. Go back home and try again.'),
+          title: 'Something went wrong — Padanam'
+        };
+      }
     }
 
     current = route;
@@ -214,6 +287,8 @@
 
     var focusedExam = view.name === 'exam' && !!A.state.activeExam;
     document.body.classList.toggle('is-exam', focusedExam);
+    document.body.classList.toggle('is-auth', view.name === 'login' || view.name === 'setup');
+    document.body.classList.toggle('is-admin', isAdmin());
     if (view.name !== 'exam') examFinishing = false;
     syncShell(view);
     document.title = view.title;
@@ -412,64 +487,38 @@
   /* ── Actions ─────────────────────────────────────────── */
   var actions = {};
 
+  function requireAdmin() {
+    if (isAdmin()) return true;
+    A.toast({
+      title: 'Admin only',
+      message: 'The administrator manages accounts, scanning and library content.',
+      kind: 'error'
+    });
+    return false;
+  }
+
   actions['open-set-form'] = function (btn) {
+    if (!requireAdmin()) return;
     views.openSetForm(btn.getAttribute('data-set') || null);
   };
 
   actions['add-question'] = function (btn) {
+    if (!requireAdmin()) return;
     var setId = btn.getAttribute('data-set');
     if (!setId) return;
     views.openQuestionForm(setId, null);
   };
 
   actions['edit-question'] = function (btn) {
+    if (!requireAdmin()) return;
     var setId = btn.getAttribute('data-set');
     var qid = btn.getAttribute('data-q');
     if (!setId || !qid) return;
     views.openQuestionForm(setId, qid);
   };
 
-  actions['delete-question'] = function (btn) {
-    var setId = btn.getAttribute('data-set');
-    var qid = btn.getAttribute('data-q');
-    if (!setId || !qid) return;
-    return A.confirm({
-      title: 'Delete this question?',
-      message: 'It will be removed from this set. Questions saved inside past attempts are not affected.',
-      confirmText: 'Delete question',
-      danger: true
-    }).then(function (ok) {
-      if (!ok) return;
-      A.deleteQuestion(setId, qid);
-      A.refresh();
-      A.toast({ title: 'Question deleted', message: 'The set has been updated.', kind: 'info' });
-    });
-  };
-
-  actions['delete-set'] = function (btn) {
-    var setId = btn.getAttribute('data-set');
-    var set = A.getSet(setId);
-    if (!set) return;
-
-    var message = '“' + set.title + '” and all of its questions will be removed from this browser. Past results stay in your history.';
-    if (A.state.activeExam && A.state.activeExam.setId === setId) {
-      message += ' Your open test on this set will also be discarded.';
-    }
-
-    return A.confirm({
-      title: 'Delete this set?',
-      message: message,
-      confirmText: 'Delete set',
-      danger: true
-    }).then(function (ok) {
-      if (!ok) return;
-      A.deleteSet(setId);
-      A.go('#/library');
-      A.toast({ title: 'Set deleted', message: 'The questions were removed from your library.', kind: 'info' });
-    });
-  };
-
   actions['restore-demos'] = function () {
+    if (!requireAdmin()) return;
     var before = A.state.sets.length;
     A.restoreDemos(true);
     var added = A.state.sets.length - before;
@@ -616,24 +665,6 @@
   actions['scroll-review'] = function () {
     var section = document.getElementById('reviewSection');
     if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
-  actions['clear-attempts'] = function () {
-    return A.confirm({
-      title: 'Clear attempt history?',
-      message: 'All saved results, scores and streaks will be removed. Your question library stays exactly as it is.' +
-        (cloudToken() ? ' The cloud copy is updated at the next sync.' : ''),
-      confirmText: 'Clear history',
-      danger: true
-    }).then(function (ok) {
-      if (!ok) return;
-      A.state.attempts = [];
-      A.state.meta.attemptsClearedAt = new Date().toISOString();
-      A.save();
-      if (A.sync) A.sync.schedule();
-      A.refresh();
-      A.toast({ title: 'History cleared', message: 'Your library is unchanged.', kind: 'info' });
-    });
   };
 
   actions['goal-step'] = function (btn) {
@@ -813,6 +844,7 @@
   };
 
   actions['export-data'] = function () {
+    if (!requireAdmin()) return;
     var payload = {
       app: 'padanam',
       kind: 'backup',
@@ -839,50 +871,9 @@
   };
 
   actions['import-data'] = function () {
+    if (!requireAdmin()) return;
     var input = document.getElementById('importFile');
     if (input) input.click();
-  };
-
-  actions['reset-data'] = function () {
-    var token = cloudToken();
-    return A.confirm({
-      title: 'Reset Padanam?',
-      message: 'This removes every set, attempt and profile detail from this browser, and clears saved Gemini and custom API keys. ' +
-        (token ? 'The cloud copy in Neon is cleared too. ' : '') +
-        'Export a backup first if you may need any of it.',
-      confirmText: 'Reset everything',
-      danger: true
-    }).then(function (ok) {
-      if (!ok) return;
-      var previousSetIds = A.state.sets.map(function (set) { return set.id; });
-      A.resetAll(false);
-      A.state.meta.seeded = true;
-      A.state.activeExam = null;
-
-      if (token && A.sync) {
-        A.state.meta.attemptsClearedAt = new Date().toISOString();
-        previousSetIds.forEach(function (id) { A.sync.noteDeletedSet(id); });
-      } else if (A.sync) {
-        A.sync.clearTombstones();
-      }
-
-      A.save();
-      views.scanClear();
-      A.go('#/home');
-      A.toast({ title: 'Padanam was reset', message: 'Start fresh with a scan, a manual set or the demo library.', kind: 'info' });
-
-      if (!token) return;
-      return A.sync.resetCloud().then(function () {
-        A.toast({ title: 'Cloud copy cleared', message: 'Neon no longer has the old sets, attempts or profile.', kind: 'success' });
-      }).catch(function (err) {
-        noteCloudFallback();
-        A.toast({
-          title: 'Cloud reset did not finish',
-          message: 'This browser was reset, but Neon may still have the old copy. Use Cloud backup → Sync now to retry. ' + syncErrorText(err),
-          kind: 'error'
-        });
-      });
-    });
   };
 
   actions['toggle-key'] = function (btn) {
@@ -905,7 +896,8 @@
 
   actions['sync-now'] = function (btn) {
     if (!A.sync) return Promise.resolve();
-    if (!cloudToken()) {
+    var account = !!(A.auth && A.auth.isAccount());
+    if (!account && !cloudToken()) {
       A.toast({ title: 'Add a sync code', message: 'Save the sync code from Cloud backup first.', kind: 'error' });
       return Promise.resolve();
     }
@@ -938,6 +930,7 @@
   };
 
   actions['sync-forget'] = function () {
+    if (!requireAdmin()) return;
     if (!A.sync) return;
     return A.confirm({
       title: 'Forget the sync code?',
@@ -952,7 +945,49 @@
     });
   };
 
+  actions['reload-app'] = function () {
+    window.location.reload();
+  };
+
+  actions['sign-out'] = function () {
+    if (!A.auth) return;
+    return A.confirm({
+      title: 'Sign out?',
+      message: 'Your library, attempts and profile stay saved for your account. Sign in again to pick up where you left off.',
+      confirmText: 'Sign out',
+      danger: false
+    }).then(function (ok) {
+      if (ok) A.auth.logout();
+    });
+  };
+
+  actions['admin-refresh'] = function (btn) {
+    if (!requireAdmin()) return;
+    if (!A.admin) return;
+    var original = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner spinner--sm"></span> Refreshing…';
+    }
+    return A.admin.load(true).then(function () {
+      A.refresh();
+      A.toast({ title: 'Accounts refreshed', message: 'The admin console now matches Neon.', kind: 'info' });
+    }).catch(function (err) {
+      A.toast({
+        title: 'Could not refresh accounts',
+        message: err && err.message ? err.message : 'Try again in a moment.',
+        kind: 'error'
+      });
+    }).then(function () {
+      if (btn && btn.isConnected) {
+        btn.disabled = false;
+        btn.innerHTML = original;
+      }
+    });
+  };
+
   actions['test-key'] = function (btn) {
+    if (!requireAdmin()) return;
     var form = document.getElementById('settingsForm');
     var out = document.getElementById('keyTestResult');
     if (!form || !out) return Promise.resolve();
@@ -1043,6 +1078,7 @@
   };
 
   actions['fetch-models'] = function (btn) {
+    if (!requireAdmin()) return;
     var form = document.getElementById('settingsForm');
     if (!form) return Promise.resolve();
 
@@ -1108,14 +1144,17 @@
   };
 
   actions['scan-run'] = function (btn) {
+    if (!requireAdmin()) return;
     return views.scanRun(btn.getAttribute('data-demo') === '1');
   };
 
   actions['scan-demo'] = function () {
+    if (!requireAdmin()) return;
     return views.scanRun(true);
   };
 
   actions['scan-save'] = function (btn) {
+    if (!requireAdmin()) return;
     views.scanSave(btn.getAttribute('data-start') === '1');
   };
 
@@ -1152,6 +1191,7 @@
   }
 
   function saveSetForm(form) {
+    if (!requireAdmin()) return;
     var id = field(form, 'setId');
     var title = trim(field(form, 'title'));
     var titleMl = trim(field(form, 'titleMl'));
@@ -1197,6 +1237,7 @@
   }
 
   function saveQuestionForm(form) {
+    if (!requireAdmin()) return;
     var setId = field(form, 'setId');
     var set = A.getSet(setId);
     if (!set) {
@@ -1305,6 +1346,7 @@
   }
 
   function saveSettingsForm(form) {
+    if (!requireAdmin()) return;
     var providerValue = field(form, 'provider');
     var provider = providerValue === 'openai' ? 'openai' : providerValue === 'pages' ? 'pages' : 'gemini';
     var apiKey = trim(field(form, 'apiKey'));
@@ -1371,6 +1413,7 @@
   }
 
   function saveSyncForm(form) {
+    if (!requireAdmin()) return;
     if (!A.sync) {
       setSyncResult(noteBox('danger', 'alert', 'The cloud sync module did not load. Reload the page and try again.'));
       return Promise.resolve();
@@ -1425,6 +1468,140 @@
       A.toast({
         title: 'Could not connect',
         message: err && err.message ? err.message : 'Check the sync code and the Pages secrets.',
+        kind: 'error'
+      });
+    }).then(function () {
+      if (button && button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = original;
+      }
+    });
+  }
+
+  function loginForm(form) {
+    var username = trim(field(form, 'username'));
+    var password = field(form, 'password');
+    var out = document.getElementById('loginError');
+    var button = form.querySelector('button[type="submit"]');
+    var original = button ? button.innerHTML : '';
+
+    if (out) out.textContent = '';
+    if (!username || !password) {
+      if (out) out.textContent = 'Enter your username and password.';
+      return Promise.resolve();
+    }
+    if (!A.auth) {
+      if (out) out.textContent = 'The account module did not load. Reload the page and try again.';
+      return Promise.resolve();
+    }
+
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = '<span class="spinner spinner--sm"></span> Signing in…';
+    }
+
+    return A.auth.login(username, password).then(function (user) {
+      if (A.sync) A.sync.reload();
+      A.go('#/home');
+      A.refresh();
+      if (A.sync) A.sync.start();
+      A.toast({
+        title: 'Signed in',
+        message: 'Welcome, ' + (user && (user.displayName || user.username) ? (user.displayName || user.username) : 'back') + '.',
+        kind: 'success'
+      });
+    }).catch(function (err) {
+      var message = err && err.message ? err.message : 'Could not sign in. Check your username and password.';
+      if (out && out.isConnected) out.textContent = message;
+      else A.toast({ title: 'Could not sign in', message: message, kind: 'error' });
+    }).then(function () {
+      if (button && button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = original;
+      }
+    });
+  }
+
+  function createUserForm(form) {
+    if (!requireAdmin()) return;
+    var username = trim(field(form, 'username'));
+    var displayName = trim(field(form, 'displayName'));
+    var password = field(form, 'password');
+    var button = form.querySelector('button[type="submit"]');
+    var original = button ? button.innerHTML : '';
+
+    if (!username || !password) {
+      A.toast({ title: 'Fill in the account', message: 'A username and first password are required.', kind: 'error' });
+      return;
+    }
+
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = '<span class="spinner spinner--sm"></span> Creating…';
+    }
+
+    return A.admin.createUser({
+      username: username,
+      displayName: displayName,
+      password: password
+    }).then(function (user) {
+      form.reset();
+      A.toast({
+        title: 'Account created',
+        message: '@' + user.username + ' can sign in now. Assign a library below.',
+        kind: 'success'
+      });
+      return A.admin.load(true).then(function () {
+        A.refresh();
+      });
+    }).catch(function (err) {
+      A.toast({
+        title: 'Could not create the account',
+        message: err && err.message ? err.message : 'Try a different username.',
+        kind: 'error'
+      });
+    }).then(function () {
+      if (button && button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = original;
+      }
+    });
+  }
+
+  function assignSetsForm(form) {
+    if (!requireAdmin()) return;
+    var userId = form.getAttribute('data-user-id');
+    if (!userId) return;
+
+    var ids = Array.prototype.slice.call(form.querySelectorAll('input[name="setIds"]:checked')).map(function (input) {
+      return input.value;
+    });
+    if (!ids.length) {
+      A.toast({ title: 'Choose a set', message: 'Tick at least one set to assign to this account.', kind: 'error' });
+      return;
+    }
+
+    var button = form.querySelector('button[type="submit"]');
+    var original = button ? button.innerHTML : '';
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = '<span class="spinner spinner--sm"></span> Assigning…';
+    }
+
+    return A.admin.assignSets(userId, ids).then(function (data) {
+      A.toast({
+        title: 'Library assigned',
+        message: A.plural(data && data.assigned ? data.assigned : ids.length, 'set') +
+          ' will appear for this account on their next sync.',
+        kind: 'success'
+      });
+      return A.admin.load(true).then(function () {
+        A.refresh();
+      });
+    }).catch(function (err) {
+      A.toast({
+        title: 'Could not assign the library',
+        message: err && err.message ? err.message : 'Press Sync now in the admin console, then try again.',
         kind: 'error'
       });
     }).then(function () {
@@ -1509,6 +1686,7 @@
   }
 
   function handleImportFile(file) {
+    if (!requireAdmin()) return Promise.resolve();
     if (!file) return Promise.resolve();
 
     return A.readFileText(file).then(function (text) {
@@ -1639,6 +1817,9 @@
     else if (kind === 'profile') handler = saveProfileForm;
     else if (kind === 'settings') handler = saveSettingsForm;
     else if (kind === 'sync') handler = saveSyncForm;
+    else if (kind === 'login') handler = loginForm;
+    else if (kind === 'create-user') handler = createUserForm;
+    else if (kind === 'assign-sets') handler = assignSetsForm;
     else if (kind === 'start-exam') handler = startExam;
     if (!handler) return;
 
@@ -1771,7 +1952,7 @@
   }
 
   /* ── Start ───────────────────────────────────────────── */
-  function init() {
+  async function init() {
     viewEl = document.getElementById('view');
     if (!viewEl) return;
 
@@ -1792,9 +1973,18 @@
       render({ routeChange: true });
     });
 
+    if (A.auth) {
+      try {
+        await A.auth.boot();
+      } catch (err) {
+        console.error('Padanam auth error', err);
+      }
+    }
+
     render({ routeChange: true });
     clock = window.setInterval(updateClock, 1000);
 
+    if (A.sync && typeof A.sync.reload === 'function') A.sync.reload();
     if (A.sync && typeof A.sync.start === 'function') A.sync.start();
 
     if ('serviceWorker' in navigator && /^https?:$/.test(window.location.protocol)) {

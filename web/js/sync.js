@@ -13,7 +13,6 @@
 
   var ENDPOINT = './api/sync';
   var CONFIG_KEY = 'padanam.sync.v1';
-  var TOMBSTONE_KEY = 'padanam.tombstones.v1';
   var MIN_TOKEN = 16;
   var MAX_TOMBSTONES = 5000;
   var SYNC_TIMEOUT = 60000;
@@ -24,6 +23,7 @@
     checking: false,
     available: false,
     configured: false,
+    accounts: false,
     host: '',
     error: '',
     syncing: false,
@@ -32,11 +32,20 @@
   };
 
   var config = readConfig();
-  var tombstones = readTombstones();
+  var tombstones = [];
+  var tombstonesLoaded = false;
   var pending = false;
   var current = null;
   var scheduleTimer = null;
   var generation = 0;
+
+  function accountMode() {
+    return !!(A.auth && A.auth.isAccount());
+  }
+
+  function signedIn() {
+    return !!(A.auth && A.auth.signedIn());
+  }
 
   /* ── Local sync settings ─────────────────────────────── */
   function fingerprint(value) {
@@ -101,7 +110,7 @@
 
   function readTombstones() {
     try {
-      var raw = window.localStorage.getItem(TOMBSTONE_KEY);
+      var raw = window.localStorage.getItem(A.tombstoneKey());
       var list = raw ? JSON.parse(raw) : [];
       return Array.isArray(list) ? list.filter(function (item) {
         return item && (item.kind === 'set' || item.kind === 'attempt') && item.id;
@@ -111,10 +120,19 @@
     }
   }
 
+  function ensureTombstones() {
+    if (!tombstonesLoaded) {
+      tombstones = readTombstones();
+      tombstonesLoaded = true;
+    }
+    return tombstones;
+  }
+
   function writeTombstones(list) {
     tombstones = (Array.isArray(list) ? list : []).slice(-MAX_TOMBSTONES);
+    tombstonesLoaded = true;
     try {
-      window.localStorage.setItem(TOMBSTONE_KEY, JSON.stringify(tombstones));
+      window.localStorage.setItem(A.tombstoneKey(), JSON.stringify(tombstones));
     } catch (err) {
       /* Best effort; the next successful sync still uses the in-memory list. */
     }
@@ -123,7 +141,7 @@
   function addTombstone(kind, id) {
     if (!id) return;
     var at = new Date().toISOString();
-    var next = tombstones.filter(function (item) {
+    var next = ensureTombstones().filter(function (item) {
       return !(item.kind === kind && item.id === id);
     });
     next.push({ kind: kind, id: String(id), deletedAt: at });
@@ -140,10 +158,11 @@
 
   function noteRestoredSet(id) {
     if (!id) return;
-    var next = tombstones.filter(function (item) {
+    var list = ensureTombstones();
+    var next = list.filter(function (item) {
       return !(item.kind === 'set' && item.id === id);
     });
-    if (next.length !== tombstones.length) writeTombstones(next);
+    if (next.length !== list.length) writeTombstones(next);
   }
 
   function clearTombstones() {
@@ -173,6 +192,9 @@
       cache: 'no-store',
       signal: controller.signal
     };
+    if (accountMode() && A.auth && A.auth.token()) {
+      init.headers.Authorization = 'Bearer ' + A.auth.token();
+    }
     if (body) {
       init.headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(body);
@@ -181,6 +203,7 @@
     return fetch(ENDPOINT, init).then(function (response) {
       return response.text().then(function (text) {
         var data = parseJson(text);
+        if (response.status === 401 && accountMode() && A.auth) A.auth.expire();
         if (!response.ok || !data || data.ok === false || (!allowError && data.error)) {
           var message = data && data.error
             ? String(data.error)
@@ -219,6 +242,7 @@
     state.promise = request(null, true).then(function (data) {
       state.available = true;
       state.configured = !!data.configured;
+      state.accounts = !!data.accounts;
       state.host = String(data.host || '');
       state.error = String(data.error || '');
       state.checked = true;
@@ -226,6 +250,7 @@
     }).catch(function (err) {
       state.available = false;
       state.configured = false;
+      state.accounts = false;
       state.error = err && err.message ? err.message : 'Could not reach the cloud sync function.';
       state.checked = true;
       return info();
@@ -238,6 +263,7 @@
   }
 
   async function test(token) {
+    if (accountMode()) throw new Error('Signed-in accounts sync automatically; use Sync now instead.');
     var code = String(token || config.token || '').trim();
     if (!code) throw new Error('Enter your sync code first.');
     if (code.length < MIN_TOKEN) throw new Error('The sync code must be at least ' + MIN_TOKEN + ' characters.');
@@ -301,7 +327,7 @@
     var adopt = remoteEpoch > localEpoch;
 
     var mergedTombstones = mergeTimestamps(
-      adopt ? [] : tombstones,
+      adopt ? [] : ensureTombstones(),
       remote.tombstones
     );
     var deleted = tombstoneMap(mergedTombstones);
@@ -395,7 +421,7 @@
       profile: A.state.profile || {},
       profileUpdatedAt: A.state.meta.profileUpdatedAt || A.state.meta.updatedAt,
       attemptsClearedAt: A.state.meta.attemptsClearedAt || '',
-      tombstones: tombstones.map(function (item) {
+      tombstones: ensureTombstones().map(function (item) {
         return { kind: item.kind, id: item.id, deletedAt: item.deletedAt };
       })
     };
@@ -407,7 +433,12 @@
       pending = true;
       return current;
     }
-    if (!config.token) {
+
+    var useAccount = accountMode();
+    if (useAccount && !signedIn()) {
+      return Promise.reject(new Error('Sign in to sync your account.'));
+    }
+    if (!useAccount && !config.token) {
       return Promise.reject(new Error('Enter your sync code in Settings first.'));
     }
 
@@ -423,9 +454,11 @@
         throw new Error(status.error || 'Cloud sync is not configured on this server.');
       }
 
-      var remote = await request({ action: 'pull', token: token });
+      var pullBody = { action: 'pull' };
+      if (!useAccount) pullBody.token = token;
+      var remote = await request(pullBody);
       if (runGeneration !== generation) {
-        throw new Error('The sync code changed before this sync finished. Sync again to use the new code.');
+        throw new Error('The sync account changed before this sync finished. Sync again.');
       }
       var merged = merge(A.state, remote);
       A.state = merged.state;
@@ -433,7 +466,7 @@
 
       var payload = snapshot();
       payload.action = 'push';
-      payload.token = token;
+      if (!useAccount) payload.token = token;
       var pushed = await request(payload);
 
       if (runGeneration !== generation) {
@@ -472,7 +505,11 @@
   }
 
   function schedule() {
-    if (!config.auto || !config.token) return;
+    if (accountMode()) {
+      if (!signedIn()) return;
+    } else if (!config.auto || !config.token) {
+      return;
+    }
     if (scheduleTimer) window.clearTimeout(scheduleTimer);
     scheduleTimer = window.setTimeout(function () {
       scheduleTimer = null;
@@ -497,7 +534,12 @@
     state.lastSyncAt = (A.state.meta && A.state.meta.lastSyncAt) || '';
     refreshStatus().then(function (status) {
       if (A.refresh && document.getElementById('cloudBackup')) A.refresh();
-      if (status.configured && config.token && config.auto) {
+      if (!status.configured) return;
+      if (accountMode()) {
+        if (signedIn()) run({ silent: true }).catch(function () {});
+        return;
+      }
+      if (config.token && config.auto) {
         run({ silent: true }).catch(function () {});
       }
     });
@@ -506,28 +548,31 @@
     }
   }
 
+  function reload() {
+    cancelScheduled();
+    tombstonesLoaded = false;
+    tombstones = [];
+    state.checked = false;
+    state.checking = false;
+    state.error = '';
+    state.lastSyncAt = '';
+    state.lastResult = null;
+    generation += 1;
+  }
+
   async function replaceCloud() {
-    if (!config.token) return null;
+    if (accountMode()) {
+      if (!signedIn()) throw new Error('Sign in to replace the cloud copy.');
+      if (!A.auth.isAdmin()) throw new Error('Only the administrator can replace the cloud copy.');
+    } else if (!config.token) {
+      return null;
+    }
     cancelScheduled();
     await waitForIdle();
     var body = snapshot();
     body.action = 'replace';
-    body.token = config.token;
+    if (!accountMode()) body.token = config.token;
     var result = await request(body);
-    if (result && result.epochMs) {
-      A.state.meta.syncEpochMs = Number(result.epochMs) || 0;
-      A.state.meta.lastSyncAt = new Date().toISOString();
-      A.save();
-    }
-    writeTombstones([]);
-    return result;
-  }
-
-  async function resetCloud() {
-    if (!config.token) return null;
-    cancelScheduled();
-    await waitForIdle();
-    var result = await request({ action: 'reset', token: config.token });
     if (result && result.epochMs) {
       A.state.meta.syncEpochMs = Number(result.epochMs) || 0;
       A.state.meta.lastSyncAt = new Date().toISOString();
@@ -543,6 +588,7 @@
       checking: state.checking,
       available: state.available,
       configured: state.configured,
+      accounts: state.accounts || accountMode(),
       host: state.host,
       error: state.error,
       syncing: state.syncing,
@@ -560,12 +606,12 @@
     sync: run,
     schedule: schedule,
     start: start,
+    reload: reload,
     noteDeletedSet: noteDeletedSet,
     noteDeletedAttempt: noteDeletedAttempt,
     noteRestoredSet: noteRestoredSet,
     clearTombstones: clearTombstones,
     replaceCloud: replaceCloud,
-    resetCloud: resetCloud,
     merge: merge
   };
 })();

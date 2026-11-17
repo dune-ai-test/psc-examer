@@ -9,7 +9,45 @@
 
   A.VERSION = 1;
   A.STORAGE_KEY = 'padanam.web.v1';
+  A.storageScope = 'local';
   A.PASS_MARK = 40;
+
+  A.storageKey = function (scope) {
+    var value = scope === undefined ? A.storageScope : scope;
+    return value && value !== 'local'
+      ? A.STORAGE_KEY + '.' + value
+      : A.STORAGE_KEY;
+  };
+
+  A.tombstoneKey = function (scope) {
+    var value = scope === undefined ? A.storageScope : scope;
+    return 'padanam.tombstones.v1' + (value && value !== 'local' ? '.' + value : '');
+  };
+
+  A.setStorageScope = function (scope) {
+    A.storageScope = String(scope || 'local');
+    return A.storageScope;
+  };
+
+  A.migrateLegacyState = function (scope) {
+    if (!scope || scope === 'local') return false;
+    try {
+      var target = A.storageKey(scope);
+      if (window.localStorage.getItem(target)) return false;
+      var source = window.localStorage.getItem(A.STORAGE_KEY);
+      if (!source) return false;
+      window.localStorage.setItem(target, source);
+
+      var sourceTombstones = window.localStorage.getItem(A.tombstoneKey('local'));
+      var targetTombstones = window.localStorage.getItem(A.tombstoneKey(scope));
+      if (sourceTombstones && !targetTombstones) {
+        window.localStorage.setItem(A.tombstoneKey(scope), sourceTombstones);
+      }
+      return true;
+    } catch (err) {
+      return false;
+    }
+  };
 
   /* ── Small utilities ─────────────────────────────────── */
   A.uid = function (prefix) {
@@ -358,10 +396,11 @@
   A.storageAvailable = true;
   A.normalizeState = normalize;
 
-  A.load = function () {
+  A.load = function (options) {
+    options = options || {};
     var raw = null;
     try {
-      raw = window.localStorage.getItem(A.STORAGE_KEY);
+      raw = window.localStorage.getItem(A.storageKey());
     } catch (err) {
       A.storageAvailable = false;
     }
@@ -376,7 +415,7 @@
       A.state = defaults();
     }
 
-    if (!A.state.meta.seeded && A.state.sets.length === 0) {
+    if (!A.state.meta.seeded && A.state.sets.length === 0 && options.seedDemos !== false) {
       A.restoreDemos(true);
     }
     return A.state;
@@ -385,7 +424,7 @@
   A.save = function () {
     try {
       A.state.meta.updatedAt = new Date().toISOString();
-      window.localStorage.setItem(A.STORAGE_KEY, JSON.stringify(A.state));
+      window.localStorage.setItem(A.storageKey(), JSON.stringify(A.state));
       A.storageAvailable = true;
       return true;
     } catch (err) {
@@ -931,5 +970,9 @@
   };
 
   /* ── Init ────────────────────────────────────────────── */
-  A.load();
+  /* Boot with an empty shell. Auth decides the real scope and
+     whether the demo library should be seeded (local mode only),
+     so a logged-out visitor never gets demo sets copied into an
+     account workspace by the legacy migration. */
+  A.load({ seedDemos: false });
 })();

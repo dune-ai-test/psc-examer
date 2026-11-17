@@ -51,6 +51,10 @@
     return name ? name.split(/\s+/)[0] : '';
   }
 
+  function isAdmin() {
+    return !!(A.auth && A.auth.isAdmin());
+  }
+
   function displayName() {
     return String(A.state.profile.name || '').trim() || 'Guest learner';
   }
@@ -161,6 +165,7 @@
   /* ── Home ────────────────────────────────────────────── */
   views.home = function () {
     var profile = A.state.profile;
+    var admin = isAdmin();
     var goal = A.goal();
     var stats = A.statsAll();
     var week = A.weekStats();
@@ -181,9 +186,13 @@
 
     var goalActions = active
       ? '<a class="btn btn-white" href="#/exam/run">' + icon('play') + ' Resume test</a>' +
-        '<a class="btn btn-dark-ghost" href="#/scan">' + icon('scan') + ' Scan a paper</a>'
+        (admin
+          ? '<a class="btn btn-dark-ghost" href="#/scan">' + icon('scan') + ' Scan a paper</a>'
+          : '<a class="btn btn-dark-ghost" href="#/library">' + icon('book') + ' Browse library</a>')
       : '<a class="btn btn-white" href="' + setupHref + '">' + icon('play') + ' Start a test</a>' +
-        '<a class="btn btn-dark-ghost" href="#/scan">' + icon('scan') + ' Scan a paper</a>';
+        (admin
+          ? '<a class="btn btn-dark-ghost" href="#/scan">' + icon('scan') + ' Scan a paper</a>'
+          : '<a class="btn btn-dark-ghost" href="#/library">' + icon('book') + ' Browse library</a>');
 
     var sideOne = active
       ? (function () {
@@ -252,21 +261,36 @@
       libraryBlock = '<div class="section-head"><h2 class="section-title">Your library</h2><a class="link" href="#/library">All sets →</a></div>' +
         '<div class="set-list">' + recentSets.map(setRowHTML).join('') + '</div>';
     } else {
-      libraryBlock = '<div class="card welcome-card">' +
-        '<p class="eyebrow"><span class="eyebrow-dot"></span>Start here</p>' +
-        '<h2>Build your first question set.</h2>' +
-        '<p>Scan a PSC question paper and let Gemini or your own OpenAI-compatible endpoint turn it into a bilingual practice set. You can also type questions in by hand, or restore the demo sets to look around.</p>' +
-        '<div class="welcome-actions">' +
-          '<a class="btn btn-primary" href="#/scan">' + icon('scan') + ' Scan a paper</a>' +
-          '<button type="button" class="btn btn-ghost" data-action="open-set-form">' + icon('plus') + ' Create manually</button>' +
-          '<button type="button" class="btn btn-subtle" data-action="restore-demos">' + icon('refresh') + ' Restore demos</button>' +
-        '</div>' +
-        '<div class="welcome-points">' +
-          '<div><strong>1 · Add a paper</strong><span>Photos or typed questions</span></div>' +
-          '<div><strong>2 · Practise</strong><span>Timed or untimed</span></div>' +
-          '<div><strong>3 · Review</strong><span>Answers and explanations</span></div>' +
-        '</div>' +
-      '</div>';
+      libraryBlock = admin
+        ? '<div class="card welcome-card">' +
+          '<p class="eyebrow"><span class="eyebrow-dot"></span>Start here</p>' +
+          '<h2>Build your first question set.</h2>' +
+          '<p>Scan a PSC question paper and let Gemini or your own OpenAI-compatible endpoint turn it into a bilingual practice set. You can also type questions in by hand, or restore the demo sets to look around.</p>' +
+          '<div class="welcome-actions">' +
+            '<a class="btn btn-primary" href="#/scan">' + icon('scan') + ' Scan a paper</a>' +
+            '<button type="button" class="btn btn-ghost" data-action="open-set-form">' + icon('plus') + ' Create manually</button>' +
+            '<button type="button" class="btn btn-subtle" data-action="restore-demos">' + icon('refresh') + ' Restore demos</button>' +
+          '</div>' +
+          '<div class="welcome-points">' +
+            '<div><strong>1 · Add a paper</strong><span>Photos or typed questions</span></div>' +
+            '<div><strong>2 · Assign it</strong><span>Admin console → accounts</span></div>' +
+            '<div><strong>3 · Practise</strong><span>Timed or untimed</span></div>' +
+          '</div>' +
+        '</div>'
+        : '<div class="card welcome-card">' +
+          '<p class="eyebrow"><span class="eyebrow-dot"></span>Library</p>' +
+          '<h2>Your sets will appear here.</h2>' +
+          '<p>The administrator assigns question sets to your account. Once a set is assigned, open it from the library to take a timed mock or practise without a timer.</p>' +
+          '<div class="welcome-actions">' +
+            '<a class="btn btn-primary" href="#/library">' + icon('book') + ' Open library</a>' +
+            '<a class="btn btn-ghost" href="#/progress">' + icon('chart') + ' See progress</a>' +
+          '</div>' +
+          '<div class="welcome-points">' +
+            '<div><strong>1 · Wait for a set</strong><span>Assigned by the admin</span></div>' +
+            '<div><strong>2 · Practise</strong><span>Timed or untimed</span></div>' +
+            '<div><strong>3 · Review</strong><span>Answers and explanations</span></div>' +
+          '</div>' +
+        '</div>';
     }
 
     var attemptsBlock = recentAttempts.length
@@ -275,7 +299,8 @@
 
     return pageHead(dateLabel + ' · ' + (profile.target || 'Kerala PSC'), greeting,
       'A quiet desk for ' + e(profile.target || 'Kerala PSC') + ' prep — practise, review and keep the streak alive.',
-      '<a class="btn btn-ghost" href="#/scan">' + icon('scan') + ' Scan</a><a class="btn btn-primary" href="#/library">' + icon('book') + ' Library</a>') +
+      (admin ? '<a class="btn btn-ghost" href="#/scan">' + icon('scan') + ' Scan</a>' : '') +
+      '<a class="btn btn-primary" href="#/library">' + icon('book') + ' Library</a>') +
 
       '<div class="home-hero">' +
         '<section class="dark-card goal-card">' +
@@ -296,7 +321,9 @@
       '</div>' +
 
       '<div class="quick-grid">' +
-        quickAction('#/scan', 'scan', 'Scan a paper', 'Photos → questions') +
+        (admin
+          ? quickAction('#/scan', 'scan', 'Scan a paper', 'Photos → questions')
+          : quickAction('#/library', 'book', 'Assigned library', 'Sets from your admin')) +
         quickAction(setupHref, 'clock', 'Mock test', 'Timed, exam-style') +
         quickAction(practiceHref, 'book', 'Practice', 'No timer, no pressure') +
         quickAction(reviewHref, 'list', 'Last result', A.state.attempts.length ? 'Review your answers' : 'No attempts yet') +
@@ -314,6 +341,7 @@
   /* ── Library ─────────────────────────────────────────── */
   views.library = function () {
     var L = ui.library;
+    var admin = isAdmin();
     var sets = A.state.sets;
     var subjects = [];
     sets.forEach(function (set) {
@@ -347,9 +375,13 @@
     }).join('');
 
     return pageHead('Question library', 'Your question bank',
-      'Every paper you scan or type lives here. Search across sets, questions and subjects.',
-      '<a class="btn btn-ghost" href="#/scan">' + icon('scan') + ' Scan paper</a>' +
-      '<button type="button" class="btn btn-primary" data-action="open-set-form">' + icon('plus') + ' New set</button>') +
+      admin
+        ? 'Every paper you scan or type lives here. Search across sets, questions and subjects.'
+        : 'The sets assigned to your account live here. Search across sets, questions and subjects.',
+      (admin
+        ? '<a class="btn btn-ghost" href="#/scan">' + icon('scan') + ' Scan paper</a>' +
+          '<button type="button" class="btn btn-primary" data-action="open-set-form">' + icon('plus') + ' New set</button>'
+        : '<span class="chip chip--indigo">' + icon('lock') + ' Assigned by admin</span>')) +
 
       '<div class="library-tools">' +
         '<label class="search-box">' +
@@ -384,7 +416,7 @@
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
 
-    var showNew = L.source === 'all' && L.subject === 'all' && !query;
+    var showNew = isAdmin() && L.source === 'all' && L.subject === 'all' && !query;
     var cards = sets.map(function (set) {
       var b = A.setBreakdown(set.id);
       var bilingual = set.questions.some(function (q) { return !!q.ml; });
@@ -420,9 +452,15 @@
     if (!sets.length) {
       var action = total
         ? '<button type="button" class="btn btn-ghost btn-sm" data-action="clear-library-filters">Clear filters</button>'
-        : '<a class="btn btn-primary" href="#/scan">' + icon('scan') + ' Scan a paper</a><button type="button" class="btn btn-ghost" data-action="restore-demos">Restore demos</button>';
-      return '<div class="card">' + emptyState('search', total ? 'No sets match' : 'Your library is empty',
-        total ? 'Try a different search, subject or source filter.' : 'Scan a question paper, create a set by hand, or restore the demo sets.', action) + '</div>';
+        : isAdmin()
+          ? '<a class="btn btn-primary" href="#/scan">' + icon('scan') + ' Scan a paper</a><button type="button" class="btn btn-ghost" data-action="restore-demos">Restore demos</button>'
+          : '<a class="btn btn-ghost" href="#/home">' + icon('home') + ' Home</a>';
+      return '<div class="card">' + emptyState('search', total ? 'No sets match' : (isAdmin() ? 'Your library is empty' : 'No sets assigned yet'),
+        total
+          ? 'Try a different search, subject or source filter.'
+          : isAdmin()
+            ? 'Scan a question paper, create a set by hand, or restore the demo sets.'
+            : 'Your administrator assigns sets to this account. They will appear here after the next sync.', action) + '</div>';
     }
 
     return '<div class="set-grid">' + cards + '</div>' +
@@ -434,6 +472,7 @@
     var set = A.getSet(setId);
     if (!set) return views.notFound('That set no longer exists.');
 
+    var admin = isAdmin();
     var b = A.setBreakdown(setId);
     var hasMl = set.questions.some(function (q) { return !!q.ml; });
     var lang = ui.setLang || A.state.profile.language;
@@ -468,16 +507,21 @@
                 '</div>';
               }).join('') + '</div>' +
               (v.explanation ? '<div class="q-explain"><strong>Why:</strong> ' + A.text(v.explanation) + '</div>' : '') +
-              '<div class="q-actions">' +
-                '<button type="button" class="btn btn-subtle btn-sm" data-action="edit-question" data-set="' + e(set.id) + '" data-q="' + e(q.id) + '">' + icon('edit') + ' Edit</button>' +
-                '<button type="button" class="btn btn-danger btn-sm" data-action="delete-question" data-set="' + e(set.id) + '" data-q="' + e(q.id) + '">' + icon('trash') + ' Delete</button>' +
-              '</div>' +
+              (admin
+                ? '<div class="q-actions">' +
+                    '<button type="button" class="btn btn-subtle btn-sm" data-action="edit-question" data-set="' + e(set.id) + '" data-q="' + e(q.id) + '">' + icon('edit') + ' Edit</button>' +
+                  '</div>'
+                : '') +
             '</div>' +
           '</details>';
         }).join('') + '</div>'
       : emptyState('list', 'No questions yet',
-          'Add questions by hand, or scan a question paper to fill this set automatically.',
-          '<button type="button" class="btn btn-primary" data-action="add-question" data-set="' + e(set.id) + '">' + icon('plus') + ' Add question</button><a class="btn btn-ghost" href="#/scan">Scan instead</a>');
+          admin
+            ? 'Add questions by hand, or scan a question paper to fill this set automatically.'
+            : 'This set is still being prepared by the administrator.',
+          admin
+            ? '<button type="button" class="btn btn-primary" data-action="add-question" data-set="' + e(set.id) + '">' + icon('plus') + ' Add question</button><a class="btn btn-ghost" href="#/scan">Scan instead</a>'
+            : '');
 
     var attemptList = attempts.length
       ? '<div class="aside-list">' + attempts.map(function (a) {
@@ -489,12 +533,15 @@
     var startActions = set.questions.length
       ? '<a class="btn btn-primary btn-block" href="#/exam/setup/' + e(set.id) + '">' + icon('play') + ' Start a mock test</a>' +
         '<a class="btn btn-ghost btn-block" href="#/exam/setup/' + e(set.id) + '?mode=practice">' + icon('book') + ' Practice without a timer</a>'
-      : '<button type="button" class="btn btn-primary btn-block" data-action="add-question" data-set="' + e(set.id) + '">' + icon('plus') + ' Add the first question</button>';
+      : admin
+        ? '<button type="button" class="btn btn-primary btn-block" data-action="add-question" data-set="' + e(set.id) + '">' + icon('plus') + ' Add the first question</button>'
+        : '<p class="muted" style="font-size:11px">Questions will appear once the administrator finishes this set.</p>';
 
     return pageHead('Set details', 'Practice this set',
       'Review the question bank, then start a timed mock or an untimed practice run.',
-      '<button type="button" class="btn btn-ghost" data-action="open-set-form" data-set="' + e(set.id) + '">' + icon('edit') + ' Edit</button>' +
-      '<button type="button" class="btn btn-danger btn-icon" data-action="delete-set" data-set="' + e(set.id) + '" aria-label="Delete set">' + icon('trash') + '</button>',
+      admin
+        ? '<button type="button" class="btn btn-ghost" data-action="open-set-form" data-set="' + e(set.id) + '">' + icon('edit') + ' Edit</button>'
+        : '',
       { href: '#/library', label: 'Library' }) +
 
       '<section class="set-hero">' +
@@ -515,7 +562,7 @@
               ? '<a class="btn btn-primary" href="#/exam/setup/' + e(set.id) + '">' + icon('play') + ' Mock test</a>' +
                 '<a class="btn btn-ghost" href="#/exam/setup/' + e(set.id) + '?mode=practice">' + icon('book') + ' Practice</a>'
               : '') +
-            '<button type="button" class="btn btn-ghost" data-action="add-question" data-set="' + e(set.id) + '">' + icon('plus') + ' Question</button>' +
+            (admin ? '<button type="button" class="btn btn-ghost" data-action="add-question" data-set="' + e(set.id) + '">' + icon('plus') + ' Question</button>' : '') +
           '</div>' +
         '</div>' +
         '<div class="set-hero-stats">' +
@@ -532,7 +579,7 @@
             '<div><h2 class="section-title">Questions</h2><p class="muted" style="font-size:10.5px;margin-top:2px">Tap a question to reveal options and the answer.</p></div>' +
             '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">' +
               langToggle +
-              '<button type="button" class="btn btn-soft btn-sm" data-action="add-question" data-set="' + e(set.id) + '">' + icon('plus') + ' Add</button>' +
+              (admin ? '<button type="button" class="btn btn-soft btn-sm" data-action="add-question" data-set="' + e(set.id) + '">' + icon('plus') + ' Add</button>' : '') +
             '</div>' +
           '</div>' +
           questions +
@@ -558,7 +605,7 @@
               '<div><span>Updated</span><strong>' + A.fmtDate(set.updatedAt) + '</strong></div>' +
               '<div><span>Languages</span><strong>' + (hasMl ? 'English + Malayalam' : 'English') + '</strong></div>' +
             '</div>' +
-            '<button type="button" class="btn btn-ghost btn-sm btn-block" style="margin-top:12px" data-action="open-set-form" data-set="' + e(set.id) + '">' + icon('edit') + ' Edit details</button>' +
+            (admin ? '<button type="button" class="btn btn-ghost btn-sm btn-block" style="margin-top:12px" data-action="open-set-form" data-set="' + e(set.id) + '">' + icon('edit') + ' Edit details</button>' : '') +
           '</div>' +
         '</aside>' +
       '</div>';
@@ -1643,7 +1690,6 @@
         '<section class="card card-pad">' +
           '<div class="section-head">' +
             '<h2 class="section-title">Recent attempts</h2>' +
-            (attempts.length ? '<button type="button" class="link" style="background:none;border:0;padding:0;font-size:12px" data-action="clear-attempts">Clear history</button>' : '') +
           '</div>' +
           '<div class="attempt-table">' + recentRows + '</div>' +
         '</section>' +
@@ -1657,12 +1703,16 @@
     var library = A.libraryStats();
     var bytes = A.storageBytes();
     var pct = Math.min(100, Math.max(2, Math.round(bytes / (5 * 1024 * 1024) * 100)));
+    var account = A.auth ? A.auth.user() : null;
+    var signedIn = !!(A.auth && A.auth.isAccount() && account);
     var name = String(profile.name || '').trim();
     var initials = A.initials(name);
     var countdown = A.daysUntil(profile.examDate);
 
     return pageHead('Your profile', 'A little about you',
-      'Your name, target and daily goal stay on this device. They shape greetings and goals, nothing else.',
+      signedIn
+        ? 'Your name, target and daily goal are saved to your account and sync with your other devices.'
+        : 'Your name, target and daily goal stay on this device. They shape greetings and goals, nothing else.',
       '<a class="btn btn-ghost" href="#/settings">' + icon('settings') + ' Settings</a>') +
 
       '<div class="profile-grid">' +
@@ -1673,7 +1723,9 @@
               '<div class="profile-head-copy">' +
                 '<h1>' + e(name || 'Guest learner') + '</h1>' +
                 '<p>' + e(profile.target || 'Kerala PSC') + (profile.examDate ? ' · exam ' + A.fmtDate(profile.examDate) : '') + '</p>' +
-                '<span class="chip chip--indigo">' + icon('lock') + ' Local profile</span>' +
+                '<span class="chip chip--indigo">' + icon('lock') + ' ' +
+                  (signedIn ? (account.role === 'admin' ? 'Admin account' : 'Learner account') : 'Local profile') +
+                '</span>' +
                 (countdown !== null && countdown >= 0 ? '<span class="chip chip--amber" style="margin-left:4px">' + (countdown === 0 ? 'Exam today' : countdown + ' days to go') + '</span>' : '') +
               '</div>' +
               '<a class="btn btn-ghost btn-sm" href="#/progress">' + icon('chart') + ' Progress</a>' +
@@ -1737,19 +1789,20 @@
         '<aside class="profile-aside">' +
           '<section class="card storage-card">' +
             '<h3>Your data</h3>' +
-            '<p>Everything lives in this browser’s local storage unless you turn on Cloud backup. Clearing site data removes the local copy, so export a backup or sync before you clean up.</p>' +
+            '<p>Your library, results and profile are tied to your account and kept in this browser. If cloud sync is on, they also update your Neon workspace.</p>' +
             '<div class="storage-meter"><span style="width:' + pct + '%"></span></div>' +
             '<div class="storage-meta"><span>' + A.fmtBytes(bytes) + ' used</span><span>of ~5 MB</span></div>' +
             '<div class="data-actions">' +
-              '<button type="button" class="btn btn-ghost btn-sm" data-action="export-data">' + icon('download') + ' Export backup</button>' +
-              '<button type="button" class="btn btn-ghost btn-sm" data-action="import-data">' + icon('import') + ' Import backup</button>' +
-              '<button type="button" class="btn btn-danger btn-sm" data-action="reset-data">' + icon('trash') + ' Reset everything</button>' +
+              '<a class="btn btn-ghost btn-sm" href="#/settings">' + icon('settings') + ' Account settings</a>' +
             '</div>' +
           '</section>' +
           '<section class="card storage-card">' +
-            '<h3>' + icon('lock') + ' Local-first</h3>' +
-            '<p>Padanam is local-first. Without Cloud backup, your library, attempts and profile stay in this browser. Scan photos go to your chosen AI provider only when you press extract.</p>' +
-            '<a class="link" style="display:inline-block;margin-top:8px;font-size:10.5px" href="#/settings">Review privacy and sync settings →</a>' +
+            '<h3>' + icon('lock') + ' Account-first' +
+            '</h3>' +
+            '<p>' + (A.auth && A.auth.isAccount()
+              ? 'You are signed in as <b>' + e(A.auth.displayName()) + '</b>. Question sets are assigned by the administrator; your attempts and profile stay private to your account.'
+              : 'This local copy is not connected to an account server. Scanning and backups are available in the admin console.') + '</p>' +
+            '<a class="link" style="display:inline-block;margin-top:8px;font-size:10.5px" href="#/settings">Review settings →</a>' +
           '</section>' +
           '<section class="card storage-card">' +
             '<h3>' + icon('target') + ' Today</h3>' +
@@ -1760,16 +1813,184 @@
       '</div>';
   };
 
-  /* ── Settings ────────────────────────────────────────── */
-  views.settings = function () {
+  /* ── Accounts ────────────────────────────────────────── */
+  views.login = function () {
+    var error = A.auth ? A.auth.error() : '';
+    return '<div class="auth-gate">' +
+      '<section class="auth-card">' +
+        '<a class="auth-brand" href="#/login">' +
+          '<img src="assets/logo.svg" alt="" width="46" height="46">' +
+          '<span><strong>Padanam</strong><small>PSC study library</small></span>' +
+        '</a>' +
+        '<p class="eyebrow"><span class="eyebrow-dot"></span>Sign in</p>' +
+        '<h1>Your study desk is private.</h1>' +
+        '<p class="auth-sub">Sign in with the account your administrator created. The same login works for admin and learner accounts.</p>' +
+        (error ? '<div class="auth-error" role="alert">' + e(error) + '</div>' : '') +
+        '<form data-form="login" id="loginForm" class="auth-form">' +
+          '<div class="field">' +
+            '<label class="field-label" for="loginUsername">Username</label>' +
+            '<input class="input" id="loginUsername" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus placeholder="e.g. anjali">' +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label" for="loginPassword">Password</label>' +
+            '<input class="input" id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="Your password">' +
+          '</div>' +
+          '<div class="auth-error" id="loginError" role="alert"></div>' +
+          '<button type="submit" class="btn btn-primary btn-block">' + icon('lock') + ' Sign in</button>' +
+        '</form>' +
+        '<p class="auth-note">Accounts are created by the administrator. Ask them if you need access or a new library.</p>' +
+      '</section>' +
+    '</div>';
+  };
+
+  views.setup = function () {
+    var error = A.auth ? A.auth.error() : '';
+    return '<div class="auth-gate">' +
+      '<section class="auth-card">' +
+        '<a class="auth-brand" href="#/home">' +
+          '<img src="assets/logo.svg" alt="" width="46" height="46">' +
+          '<span><strong>Padanam</strong><small>PSC study library</small></span>' +
+        '</a>' +
+        '<p class="eyebrow"><span class="eyebrow-dot"></span>Setup needed</p>' +
+        '<h1>Accounts are not configured.</h1>' +
+        '<p class="auth-sub">This site needs three Cloudflare Pages secrets before anyone can sign in. Add them, then redeploy or retry.</p>' +
+        (error ? '<div class="auth-error" role="alert">' + e(error) + '</div>' : '') +
+        '<div class="setup-list">' +
+          '<div><code>AUTH_SECRET</code><span>At least 32 random characters for signing sessions.</span></div>' +
+          '<div><code>ADMIN_USERNAME</code><span>The first admin username.</span></div>' +
+          '<div><code>ADMIN_PASSWORD</code><span>At least 8 characters for that admin.</span></div>' +
+        '</div>' +
+        '<p class="auth-note">The Neon connection string is also required. See <span class="mono">web/README.md</span> for the full secret list.</p>' +
+        '<button type="button" class="btn btn-primary btn-block" data-action="reload-app">' + icon('refresh') + ' Retry setup check</button>' +
+      '</section>' +
+    '</div>';
+  };
+
+  function adminUsersCard() {
+    if (!A.auth || !A.auth.isAccount()) {
+      return '<section class="card settings-card" id="adminUsers">' +
+        '<div class="settings-card-head">' +
+          '<span class="settings-icon">' + icon('user') + '</span>' +
+          '<div><h2>Accounts</h2><p>User accounts live in Neon, so they are created from the deployed site.</p></div>' +
+          '<span class="chip">Local mode</span>' +
+        '</div>' +
+        '<div class="inline-note">' + icon('info') +
+          '<div>This copy is running without the account server. Scanning, appearance and local backups still work here. Deploy the <span class="mono">functions/</span> folder with Pages and set <span class="mono">AUTH_SECRET</span>, <span class="mono">ADMIN_USERNAME</span> and <span class="mono">ADMIN_PASSWORD</span> to create learner accounts.</div>' +
+        '</div>' +
+      '</section>';
+    }
+
+    var info = A.admin ? A.admin.info() : { checked: false, loading: false, error: '', users: [], sets: [] };
+    var users = Array.isArray(info.users) ? info.users : [];
+    var sets = Array.isArray(info.sets) ? info.sets : [];
+    var byId = {};
+    sets.forEach(function (set) { byId[set.id] = set; });
+
+    var body;
+    if (info.loading && !users.length) {
+      body = '<div class="inline-note">' + icon('refresh') + '<div>Loading accounts from Neon…</div></div>';
+    } else if (info.error && !users.length) {
+      body = '<div class="inline-note inline-note--danger">' + icon('alert') + '<div>' + e(info.error) + '</div></div>';
+    } else if (!users.length) {
+      body = '<div class="admin-empty">' +
+        '<span class="empty-icon">' + icon('user') + '</span>' +
+        '<h3>No learner accounts yet</h3>' +
+        '<p>Create the first account above. Then sync your library and assign a few sets.</p>' +
+      '</div>';
+    } else {
+      body = '<div class="admin-user-list">' + users.map(function (user) {
+        var assigned = Array.isArray(user.setIds) ? user.setIds : [];
+        var available = sets.filter(function (set) { return assigned.indexOf(set.id) < 0; });
+        var chips = assigned.length
+          ? assigned.map(function (id) {
+              var set = byId[id];
+              return '<span class="chip chip--indigo">' + icon('book') + ' ' + e(set ? set.title : id) + '</span>';
+            }).join('')
+          : '<span class="muted" style="font-size:10.5px">No sets assigned yet</span>';
+
+        var picker;
+        if (available.length) {
+          picker = '<details class="admin-assign">' +
+            '<summary>Assign sets <span class="faint">· ' + available.length + ' available</span></summary>' +
+            '<form data-form="assign-sets" data-user-id="' + e(user.id) + '">' +
+              '<div class="admin-set-list">' + available.map(function (set) {
+                return '<label class="check-row admin-set-choice">' +
+                  '<input type="checkbox" name="setIds" value="' + e(set.id) + '">' +
+                  '<span><strong>' + e(set.title) + '</strong><small>' + e(set.subject) + ' · ' + A.plural(set.questions, 'question') + '</small></span>' +
+                '</label>';
+              }).join('') + '</div>' +
+              '<div class="form-actions" style="margin-top:10px">' +
+                '<button type="submit" class="btn btn-primary btn-sm">' + icon('check') + ' Assign selected</button>' +
+              '</div>' +
+            '</form>' +
+          '</details>';
+        } else {
+          picker = '<p class="field-hint">' + (sets.length
+            ? 'Every set in the admin library is already assigned.'
+            : 'No sets in the admin workspace yet. Add or import sets, press Sync now, then refresh this list.') + '</p>';
+        }
+
+        return '<article class="admin-user">' +
+          '<div class="admin-user-head">' +
+            '<span class="avatar avatar--sm">' + e(A.initials(user.displayName)) + '</span>' +
+            '<div class="admin-user-copy">' +
+              '<strong>' + e(user.displayName) + '</strong>' +
+              '<small>@' + e(user.username) + (user.createdAt ? ' · joined ' + e(A.fmtDate(user.createdAt)) : '') + '</small>' +
+            '</div>' +
+            '<span class="chip">' + A.plural(assigned.length, 'set') + '</span>' +
+          '</div>' +
+          '<div class="admin-user-sets">' + chips + '</div>' +
+          picker +
+        '</article>';
+      }).join('') + '</div>';
+    }
+
+    return '<section class="card settings-card" id="adminUsers">' +
+      '<div class="settings-card-head">' +
+        '<span class="settings-icon">' + icon('user') + '</span>' +
+        '<div><h2>Accounts</h2><p>Create a learner account, then assign sets from the admin library. Users cannot create or delete sets.</p></div>' +
+        '<span class="chip">' + e(A.plural(users.length, 'account')) + '</span>' +
+      '</div>' +
+      '<form class="admin-create" data-form="create-user" id="createUserForm">' +
+        '<div class="form-grid">' +
+          '<div class="field">' +
+            '<label class="field-label" for="adminUsername">Username</label>' +
+            '<input class="input" id="adminUsername" name="username" autocomplete="off" autocapitalize="none" spellcheck="false" required minlength="3" maxlength="32" placeholder="e.g. anjali">' +
+            '<span class="field-hint">Lowercase letters, numbers, dots, dashes or underscores.</span>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label" for="adminDisplayName">Display name</label>' +
+            '<input class="input" id="adminDisplayName" name="displayName" maxlength="80" placeholder="e.g. Anjali S.">' +
+          '</div>' +
+        '</div>' +
+        '<div class="field" style="margin-top:14px">' +
+          '<label class="field-label" for="adminPassword">First password</label>' +
+          '<input class="input" id="adminPassword" name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="200" placeholder="At least 8 characters">' +
+          '<span class="field-hint">Share this password with the learner privately. There is no automatic reset flow.</span>' +
+        '</div>' +
+        '<div class="form-actions" style="margin-top:14px">' +
+          '<button type="submit" class="btn btn-primary">' + icon('plus') + ' Create account</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm" data-action="admin-refresh">' + icon('refresh') + ' Refresh accounts</button>' +
+        '</div>' +
+      '</form>' +
+      '<div id="adminUserList" style="margin-top:18px">' + body + '</div>' +
+    '</section>';
+  }
+
+  /* ── Settings & admin console ────────────────────────── */
+  function settingsPage(adminConsole) {
+    var who = A.auth ? A.auth.user() : null;
     var settings = A.state.settings;
     var provider = A.gemini.provider(settings);
     var bytes = A.storageBytes();
     var library = A.libraryStats();
     var syncInfo = A.sync ? A.sync.info() : null;
     var syncConfig = A.sync ? A.sync.config() : { token: '', auto: false };
+    var accountMode = !!(A.auth && A.auth.isAccount());
     var syncReady = !!(syncInfo && syncInfo.checked && syncInfo.available && syncInfo.configured);
-    var syncConnected = !!(syncReady && syncConfig.token);
+    var syncConnected = accountMode
+      ? !!(syncReady && A.auth.signedIn())
+      : !!(syncReady && syncConfig.token);
     var syncChip = !syncInfo
       ? 'Off'
       : syncInfo.syncing
@@ -1792,6 +2013,13 @@
       syncStatus = syncInfo.error || 'Cloud sync is not available on this site.';
     } else if (!syncInfo.configured) {
       syncStatus = syncInfo.error || 'The sync function is online, but the Neon secrets are missing in Cloudflare Pages.';
+    } else if (accountMode) {
+      syncStatus = 'Connected to ' + (syncInfo.host || 'Neon') + '.';
+      if (syncInfo.lastSyncAt) syncStatus += ' Last synced ' + A.fmtRelative(syncInfo.lastSyncAt) + '.';
+      if (syncInfo.lastResult) {
+        syncStatus += ' Cloud has ' + A.plural(syncInfo.lastResult.sets, 'set') +
+          ' and ' + A.plural(syncInfo.lastResult.attempts, 'attempt') + '.';
+      }
     } else if (!syncConfig.token) {
       syncStatus = 'Ready on ' + (syncInfo.host || 'Neon') + '. Enter the sync code you set in Cloudflare Pages.';
     } else {
@@ -1874,12 +2102,20 @@
           : 'Not configured yet. Add a Gemini API key to enable scanning.';
     }
 
-    return pageHead('Settings', 'Keys, data and privacy',
-      'Configure AI scanning, optional cloud backup and the copy of Padanam that lives in this browser.',
-      '<a class="btn btn-ghost" href="#/profile">' + icon('user') + ' Profile</a>') +
+    return pageHead(
+      adminConsole ? 'Admin console' : 'Settings',
+      adminConsole ? 'Accounts, scanning and backups' : 'Appearance and account',
+      adminConsole
+        ? 'Create accounts, assign libraries, and configure the scanner and Neon sync for this site.'
+        : 'Choose a theme, review the account signed in on this browser, and read about Padanam.',
+      adminConsole
+        ? '<a class="btn btn-ghost" href="#/settings">' + icon('settings') + ' Settings</a>'
+        : (isAdmin() ? '<a class="btn btn-ghost" href="#/admin">' + icon('lock') + ' Admin console</a>' : '') +
+          '<a class="btn btn-ghost" href="#/profile">' + icon('user') + ' Profile</a>') +
 
       '<div class="settings-grid">' +
         '<div class="settings-main">' +
+          (adminConsole ? adminUsersCard() : '') +
           '<section class="card settings-card" id="appearance">' +
             '<div class="settings-card-head">' +
               '<span class="settings-icon">' + icon('moon') + '</span>' +
@@ -1892,7 +2128,28 @@
             '</div>' +
           '</section>' +
 
-          '<form class="card settings-card" data-form="settings" id="settingsForm">' +
+          '<section class="card settings-card" id="account">' +
+            '<div class="settings-card-head">' +
+              '<span class="settings-icon settings-icon--success">' + icon('user') + '</span>' +
+              '<div><h2>Account</h2><p>' + (A.auth && A.auth.isAccount()
+                ? 'Signed in as <b>' + e(A.auth.displayName()) + '</b> · @' + e(who ? who.username : '') + '.'
+                : 'This copy is running in local mode without an account server.') + '</p></div>' +
+              '<span class="chip chip--indigo">' + e(who && who.role === 'admin' ? 'Admin' : 'Learner') + '</span>' +
+            '</div>' +
+            '<div class="about-list">' +
+              '<div><span>Role</span><strong>' + (who && who.role === 'admin' ? 'Administrator' : 'User') + '</strong></div>' +
+              '<div><span>Library access</span><strong>' + (who && who.role === 'admin' ? 'Create, scan and assign' : 'Assigned by the admin') + '</strong></div>' +
+              '<div><span>Cloud sync</span><strong>' + (A.auth && A.auth.isAccount() ? 'Account · Neon' : 'Local only') + '</strong></div>' +
+            '</div>' +
+            '<div class="form-actions" style="margin-top:14px">' +
+              (A.auth && A.auth.isAccount()
+                ? '<button type="button" class="btn btn-ghost" data-action="sign-out">' + icon('logout') + ' Sign out</button>'
+                : '') +
+              (isAdmin() ? '<a class="btn btn-ghost" href="#/admin">' + icon('lock') + ' Admin console</a>' : '') +
+            '</div>' +
+          '</section>' +
+
+          (adminConsole ? '<form class="card settings-card" data-form="settings" id="settingsForm">' +
             '<div class="settings-card-head">' +
               '<span class="settings-icon">' + icon('spark') + '</span>' +
               '<div><h2>AI scanning</h2><p>Currently using <b>' + e(provider.label) + '</b>. Choose Gemini, an OpenAI-compatible endpoint, or a Cloudflare Pages proxy that keeps the key on the server.</p></div>' +
@@ -1985,43 +2242,55 @@
             '<div class="settings-note">' + icon('lock') +
               '<span>Direct Gemini or custom keys are stored in this browser and can be read by anything running on this origin. The Cloudflare Pages proxy keeps its key in encrypted Pages secrets instead. No key is ever included in exports.</span>' +
             '</div>' +
-          '</form>' +
+          '</form>' : '') +
 
-          '<section class="card settings-card" id="cloudBackup">' +
+          (adminConsole ? '<section class="card settings-card" id="cloudBackup">' +
             '<div class="settings-card-head">' +
               '<span class="settings-icon">' + icon('cloud') + '</span>' +
-              '<div><h2>Cloud backup</h2><p>Keep sets, questions, attempts and profile in step across browsers with your own Neon database.</p></div>' +
+              '<div><h2>Cloud backups</h2><p>' + (A.auth && A.auth.isAccount()
+                ? 'Your account workspace syncs sets, questions, attempts and profile with Neon.'
+                : 'Connect this local copy to a Neon workspace with the legacy sync code.') + '</p></div>' +
               '<span class="chip ' + (syncConnected ? 'chip--success' : 'chip--amber') + '">' + e(syncChip) + '</span>' +
             '</div>' +
-            '<form data-form="sync" id="syncForm">' +
-              '<div class="field">' +
-                '<label class="field-label" for="syncToken">Sync code</label>' +
-                '<div class="key-field">' +
-                  '<input class="input" id="syncToken" name="token" type="' + (ui.showSyncToken ? 'text' : 'password') + '" autocomplete="off" spellcheck="false" placeholder="The SYNC_TOKEN you set in Cloudflare Pages" value="' + e(syncConfig.token) + '">' +
-                  '<button type="button" class="key-toggle" data-action="toggle-sync-token" aria-label="' + (ui.showSyncToken ? 'Hide sync code' : 'Show sync code') + '">' + icon('eye') + '</button>' +
+            (A.auth && A.auth.isAccount()
+              ? '<div class="about-list">' +
+                  '<div><span>Signed in</span><strong>' + e(A.auth.displayName()) + '</strong></div>' +
+                  '<div><span>Workspace</span><strong class="mono">' + (who && who.role === 'admin' ? 'admin:' + e(who.username) : 'private account') + '</strong></div>' +
+                  '<div><span>Auto sync</span><strong>On</strong></div>' +
                 '</div>' +
-                '<span class="field-hint">At least 16 characters, exactly matching the <span class="mono">SYNC_TOKEN</span> secret. The same code on another browser opens the same cloud library; a different code opens a different one.</span>' +
-              '</div>' +
-              '<label class="check-row sync-auto" for="syncAuto">' +
-                '<input type="checkbox" id="syncAuto" name="auto"' + (syncConfig.auto ? ' checked' : '') + '>' +
-                '<span><strong>Automatic sync</strong><small>Push changes a few seconds after you edit, and pull once when Padanam opens.</small></span>' +
-              '</label>' +
-              '<div class="form-actions" style="margin-top:14px">' +
-                '<button type="submit" class="btn btn-primary">' + icon('check') + ' Save sync code</button>' +
-                '<button type="button" class="btn btn-ghost" data-action="sync-now">' + icon('refresh') + ' Sync now</button>' +
-                (syncConfig.token ? '<button type="button" class="btn btn-ghost btn-sm" data-action="sync-forget">' + icon('close') + ' Forget code</button>' : '') +
-              '</div>' +
-              '<div class="test-result" id="syncTestResult"></div>' +
-            '</form>' +
+                '<div class="form-actions" style="margin-top:14px">' +
+                  '<button type="button" class="btn btn-primary" data-action="sync-now">' + icon('refresh') + ' Sync now</button>' +
+                '</div>' +
+                '<div class="test-result" id="syncTestResult"></div>'
+              : '<form data-form="sync" id="syncForm">' +
+                  '<div class="field">' +
+                    '<label class="field-label" for="syncToken">Sync code</label>' +
+                    '<div class="key-field">' +
+                      '<input class="input" id="syncToken" name="token" type="' + (ui.showSyncToken ? 'text' : 'password') + '" autocomplete="off" spellcheck="false" placeholder="The SYNC_TOKEN you set in Cloudflare Pages" value="' + e(syncConfig.token) + '">' +
+                      '<button type="button" class="key-toggle" data-action="toggle-sync-token" aria-label="' + (ui.showSyncToken ? 'Hide sync code' : 'Show sync code') + '">' + icon('eye') + '</button>' +
+                    '</div>' +
+                    '<span class="field-hint">At least 16 characters, exactly matching the <span class="mono">SYNC_TOKEN</span> secret.</span>' +
+                  '</div>' +
+                  '<label class="check-row sync-auto" for="syncAuto">' +
+                    '<input type="checkbox" id="syncAuto" name="auto"' + (syncConfig.auto ? ' checked' : '') + '>' +
+                    '<span><strong>Automatic sync</strong><small>Push changes a few seconds after you edit, and pull once when Padanam opens.</small></span>' +
+                  '</label>' +
+                  '<div class="form-actions" style="margin-top:14px">' +
+                    '<button type="submit" class="btn btn-primary">' + icon('check') + ' Save sync code</button>' +
+                    '<button type="button" class="btn btn-ghost" data-action="sync-now">' + icon('refresh') + ' Sync now</button>' +
+                    (syncConfig.token ? '<button type="button" class="btn btn-ghost btn-sm" data-action="sync-forget">' + icon('close') + ' Forget code</button>' : '') +
+                  '</div>' +
+                  '<div class="test-result" id="syncTestResult"></div>' +
+                '</form>') +
             '<div class="settings-note">' + icon('lock') +
-              '<span>' + e(syncStatus) + ' Only sets, questions, attempts and profile are stored in Neon. Photos, scan images, AI keys and this sync code are never uploaded; backups do not include the code either.</span>' +
+              '<span>' + e(syncStatus) + ' Only sets, questions, attempts and profile are stored in Neon. Photos, scan images and AI keys are never uploaded.</span>' +
             '</div>' +
-          '</section>' +
+          '</section>' : '') +
 
-          '<section class="card settings-card">' +
+          (adminConsole ? '<section class="card settings-card">' +
             '<div class="settings-card-head">' +
               '<span class="settings-icon settings-icon--success">' + icon('database') + '</span>' +
-              '<div><h2>Your data</h2><p>Download a backup file, or keep browsers in step with Cloud backup above. Neon never receives photos or API keys.</p></div>' +
+              '<div><h2>Data &amp; backups</h2><p>Export the admin library and import an earlier Padanam backup. Neon never receives photos or API keys.</p></div>' +
             '</div>' +
             '<div class="about-list">' +
               '<div><span>Sets in library</span><strong>' + library.sets + '</strong></div>' +
@@ -2032,10 +2301,12 @@
             '<div class="danger-actions">' +
               '<button type="button" class="btn btn-ghost btn-sm" data-action="export-data">' + icon('download') + ' Export a backup file</button>' +
               '<button type="button" class="btn btn-ghost btn-sm" data-action="import-data">' + icon('import') + ' Import from a backup</button>' +
-              (A.state.attempts.length ? '<button type="button" class="btn btn-danger btn-sm" data-action="clear-attempts">' + icon('refresh') + ' Clear attempt history</button>' : '') +
-              '<button type="button" class="btn btn-danger btn-sm" data-action="reset-data">' + icon('trash') + ' Reset library and profile</button>' +
+              '<button type="button" class="btn btn-subtle btn-sm" data-action="restore-demos">' + icon('refresh') + ' Add the demo sets</button>' +
             '</div>' +
-          '</section>' +
+            '<div class="settings-note">' + icon('info') +
+              '<span>Press <b>Sync now</b> above after adding or importing sets so they reach Neon. Assigned sets are pulled by each user on their next sync.</span>' +
+            '</div>' +
+          '</section>' : '') +
 
           '<section class="card settings-card">' +
             '<div class="settings-card-head">' +
@@ -2045,31 +2316,45 @@
             '<div class="about-list">' +
               '<div><span>Version</span><strong class="mono">1.0.0 · web</strong></div>' +
               '<div><span>Storage</span><strong>localStorage</strong></div>' +
-              '<div><span>Cloud sync</span><strong>Optional · Neon</strong></div>' +
+              '<div><span>Cloud sync</span><strong>' + (A.auth && A.auth.isAccount() ? 'Account · Neon' : 'Optional · Neon') + '</strong></div>' +
               '<div><span>Questions</span><strong>English + Malayalam</strong></div>' +
               '<div><span>Scanning</span><strong>Gemini, custom API or Cloudflare proxy</strong></div>' +
-              '<div><span>Accounts</span><strong>None</strong></div>' +
+              '<div><span>Accounts</span><strong>' + (A.auth && A.auth.isAccount() ? 'Admin + users' : 'Local mode') + '</strong></div>' +
             '</div>' +
           '</section>' +
         '</div>' +
 
         '<aside class="settings-aside">' +
-          '<section class="card note-card">' +
-            '<h3>' + icon('scan') + ' Connecting a scanner</h3>' +
-            '<p>For Gemini, create a key in Google AI Studio. For a custom endpoint, paste its base URL, optional key and model. For a deployed site, choose Cloudflare Pages so the key stays in your Pages secrets.</p>' +
-            '<a class="link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Open Google AI Studio ↗</a>' +
-          '</section>' +
+          (adminConsole
+            ? '<section class="card note-card">' +
+                '<h3>' + icon('scan') + ' Connecting a scanner</h3>' +
+                '<p>For Gemini, create a key in Google AI Studio. For a custom endpoint, paste its base URL, optional key and model. For a deployed site, choose Cloudflare Pages so the key stays in your Pages secrets.</p>' +
+                '<a class="link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Open Google AI Studio ↗</a>' +
+              '</section>' +
+              '<section class="card note-card">' +
+                '<h3>' + icon('user') + ' Assigning libraries</h3>' +
+                '<p>Create an account, then tick the sets that account should receive. Users pull assigned sets on their next sync; their attempts and profile stay private to them.</p>' +
+              '</section>'
+            : '<section class="card note-card">' +
+                '<h3>' + icon('user') + ' Your account</h3>' +
+                '<p>' + (A.auth && A.auth.isAccount()
+                  ? 'You are signed in as <b>' + e(A.auth.displayName()) + '</b>. Ask the administrator for another account or for a set to be assigned.'
+                  : 'Local mode keeps everything in this browser. The deployed site uses accounts and Neon sync.') + '</p>' +
+              '</section>') +
           '<section class="card note-card">' +
             '<h3>' + icon('lock') + ' What leaves this browser</h3>' +
-            '<p>Scan photos go only to the provider you configured, and only when you press extract. With Cloud backup on, sets, questions, attempts and profile go to your own Neon database. Photos, AI keys and the sync code are never uploaded, and there is no Padanam account.</p>' +
-          '</section>' +
-          '<section class="card note-card">' +
-            '<h3>' + icon('alert') + ' Before resetting</h3>' +
-            '<p>Export a backup first. Resetting removes your library, attempts and profile from this browser. Saved Gemini and custom API keys are also cleared.</p>' +
-            '<button type="button" class="btn btn-ghost btn-sm btn-block" style="margin-top:10px" data-action="export-data">' + icon('download') + ' Export backup</button>' +
+            '<p>Scan photos go only to the provider you configured, and only when you press extract. With accounts on, sets, questions, attempts and profile sync to your Neon workspace. Photos and AI keys are never uploaded.</p>' +
           '</section>' +
         '</aside>' +
       '</div>';
+  }
+
+  views.settings = function () {
+    return settingsPage(false);
+  };
+
+  views.admin = function () {
+    return settingsPage(true);
   };
 
   /* ── Not found ───────────────────────────────────────── */

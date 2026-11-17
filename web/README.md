@@ -2,37 +2,40 @@
 
 A complete browser version of the Padanam Kerala PSC study app, built with plain
 HTML, CSS and JavaScript. There is no build step, framework or package install.
-Light, dark and system-following themes are available in **Settings →
-Appearance**, and the choice is remembered in this browser.
 
-## Run it
+The deployed app has two kinds of account:
 
-- **Quick look:** open `index.html` in a modern browser. The library, bilingual
-  questions, timed mocks, practice mode and review all work from `file://`.
+- **Administrator** — creates learner accounts, owns the library, scans papers,
+  edits sets and questions, exports/imports backups and assigns sets.
+- **Learner** — signs in, studies the sets the administrator assigned, and keeps
+  their own attempts and profile.
+
+Both roles sign in through the same form. Light, dark and system-following themes
+are available in **Settings → Appearance**, and the choice is remembered in this
+browser.
+
+## Run it locally
+
+- **Quick look:** open `index.html` in a modern browser. On `file://` the app
+  runs in **local mode** with no sign-in, so the library, bilingual questions,
+  timed mocks, practice mode and review all work offline.
 - **Recommended:** serve the folder over HTTP, for example:
 
   ```
   npx serve web
   ```
 
-  or any static server. A local origin gives the most reliable camera, file
-  picker and AI endpoint behaviour, and it enables the self-hosted fonts, web
-  manifest and offline caching.
+  or any static server. On `localhost` and `127.0.0.1` the app also falls back to
+  local mode when the Pages Functions are not running. That is the easiest way to
+  work on the interface without a Neon database.
 
-> Opening from `file://` works, but browsers block the manifest and the
-> self-hosted font files on local pages, so the app falls back to system fonts.
-> Serve over HTTP for the full design.
+> A deployed site without the account secrets shows a setup page instead of
+> falling back to local mode. Login cannot be bypassed on a public origin.
 
 > Local storage is tied to the origin. A library saved from `file://` is separate
-> from one saved on `http://localhost`. Use **Settings → Export a backup file**
-> to move between them.
+> from one saved on `http://localhost`.
 
 ## Deploy to Cloudflare Pages
-
-The static app can be served on its own, but keeping an API key out of the
-browser requires the included Pages Function. Environment variables on a
-static Pages site are **not** visible to `web/` JavaScript, so the function in
-`functions/api/scan.js` reads the key on the server and proxies scan requests.
 
 1. Push this repository to GitHub or GitLab.
 2. In Cloudflare, open **Workers & Pages → Create → Pages → Connect to Git**.
@@ -42,12 +45,26 @@ static Pages site are **not** visible to `web/` JavaScript, so the function in
    - **Build output directory:** `web`.
 4. Deploy once.
 5. Open the Pages project → **Settings → Variables and Secrets** and add the
-   variables for the provider you want. Mark the key as **Encrypt**.
-6. Add the cloud backup secrets too if you want sync (optional). See
-   [Cloud backup with Neon](#cloud-backup-with-neon).
-7. Redeploy the project so the functions receive the new values.
-8. Open the deployed app → **Settings → Provider → Cloudflare Pages** → **Test
-   connection** → **Save settings**.
+   account, database and optional scanning secrets described below. Mark every
+   key as **Encrypt**.
+6. Redeploy so the Functions receive the new values.
+7. Open the deployed site, sign in with `ADMIN_USERNAME` and `ADMIN_PASSWORD`,
+   and create the learner accounts from **Admin console → Accounts**.
+
+### Account secrets (required)
+
+| Name | Value | Secret? |
+| --- | --- | --- |
+| `AUTH_SECRET` | a random string of at least 32 characters | **yes** |
+| `ADMIN_USERNAME` | 3–32 lowercase letters, numbers, dots, dashes or underscores | no |
+| `ADMIN_PASSWORD` | at least 8 characters | **yes** |
+| `NEON_CONNECTION_STRING` | the pooled Neon connection string | **yes** |
+
+`AUTH_SECRET` signs the stateless session tokens. Changing it signs everyone out.
+`ADMIN_USERNAME` and `ADMIN_PASSWORD` bootstrap the one administrator account;
+the password is checked on the server and is never stored in Neon. There is no
+reset button — to change the admin password, update the Pages secret and
+redeploy. To revoke a learner, remove their row from the `padanam_users` table.
 
 ### Gemini through Pages
 
@@ -66,21 +83,14 @@ static Pages site are **not** visible to `web/` JavaScript, so the function in
 | `OPENAI_MODEL` | a vision-capable model name | no |
 | `OPENAI_API_KEY` | your API key | **yes** |
 
-The Pages Function is available at `/api/scan`. It only accepts small JSON scan
-requests, uses the server-side key, and never returns the key to the browser.
-The `web/_routes.json` file keeps static assets off the Functions invocation
-path.
+The scan Function at `/api/scan` only accepts small JSON scan requests, uses the
+server-side key, and never returns the key to the browser. A companion Function
+at `/api/models` lists the models available to the configured provider; fetched
+lists stay in memory and are never written to `localStorage`, backups or Neon.
+The `web/_routes.json` file keeps static assets off the Functions invocation path.
 
-A companion Function at `/api/models` lists the models available to the
-server-side provider. It uses Gemini's `ListModels` API or an OpenAI-compatible
-`GET /models` request, and returns only model ids and display labels. In
-**Settings → AI scanning → Fetch models**, the Pages provider shows that list as
-a read-only catalog. Keys never reach the browser, and fetched lists stay in
-memory only — they are not written to `localStorage`, backups or Neon.
-
-> Pages Functions require Git integration or a Wrangler deployment. Direct
-> Upload from the Cloudflare dashboard does not include the `functions/`
-> directory.
+> Pages Functions require Git integration or a Wrangler deployment. Direct Upload
+> from the Cloudflare dashboard does not include the `functions/` directory.
 
 > The proxy keeps the key secret, but the endpoint itself is still public. Add a
 > Cloudflare rate-limiting rule or Access policy if you do not want others using
@@ -93,96 +103,114 @@ For local function development, create a `.dev.vars` file at the repository root
 npx wrangler pages dev web
 ```
 
-## Cloud backup with Neon
+## Accounts, sessions and permissions
 
-Cloud backup is optional. It stores sets, questions, attempts and the profile in
-your own [Neon](https://neon.tech) Postgres database, so several browsers can
-share one library. Scan photos, AI keys and the sync code itself are never
-uploaded.
+- Passwords are stored in Neon as PBKDF2-SHA256 hashes with 100,000 iterations
+  and a per-user salt. Plain passwords are never written to the database, the
+  browser or logs.
+- Sign-in returns an HMAC-SHA256 signed token with a 7-day lifetime. The browser
+  keeps it in `localStorage` under `padanam.auth.v1` and sends it as
+  `Authorization: Bearer …` to `/api/admin` and `/api/sync`.
+- The administrator session is checked against `ADMIN_USERNAME`; learner
+  sessions re-check the `padanam_users` row on every request, so removing a user
+  takes effect immediately.
+- Sign-in is rate-limited per server isolate (best effort), and invalid
+  usernames and passwords share one generic error message.
+- `#/admin` and `#/scan` redirect learners to an “admins only” page. All write
+  actions also check the role in the browser, and the Functions check it again.
 
-1. Create a Neon project and copy a **pooled** connection string from the Neon
-   dashboard. It looks like
-   `postgresql://user:password@ep-xxx-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`.
-2. In **Cloudflare Pages → Settings → Variables and Secrets**, add:
+### Scope of each role
 
-   | Name | Value | Secret? |
-   | --- | --- | --- |
-   | `NEON_CONNECTION_STRING` | the pooled connection string | **yes** |
-   | `SYNC_TOKEN` | a sync code of at least 16 characters | **yes** |
-   | `NEON_HTTP_ENDPOINT` | optional full `https://…/sql` URL | no |
+| Area | Administrator | Learner |
+| --- | --- | --- |
+| Study assigned sets, practice and mock tests | yes | yes |
+| Progress, profile and attempts | yes | own attempts |
+| Scan papers, add/edit sets and questions | yes | no |
+| Export/import a backup, replace the cloud copy | yes | no |
+| Create accounts and assign libraries | yes | no |
+| Appearance and account settings | yes | yes |
 
-   Mark the connection string and the sync code as **Encrypt**.
-3. Redeploy. Open **Settings → Cloud backup**, enter the same sync code and
-   press **Save sync code**. The app tests the function, creates the tables and
-   can sync immediately.
-4. Enter the same code in another browser to share the library. A different code
-   points the browser at a different dataset.
+There are deliberately **no delete or reset buttons** anywhere in the app: no
+delete set, delete question, clear attempts, reset data or reset cloud. A backup
+import is the only replace operation, and it is administrator-only.
 
-The sync Function at `/api/sync` reads the connection string on the server and
-uses the Neon database host from it to call the HTTP SQL endpoint
-(`https://<neon-host>/sql`). Set `NEON_HTTP_ENDPOINT` only if your Neon project
-needs an explicit endpoint. Tables are created on the first request:
+## Libraries and assignment
 
+The administrator’s library is the master copy. **Admin console → Accounts**
+lists every learner with the sets they already have. Opening **Assign sets** on
+an account shows the admin library; tick one or more sets and submit. The server
+copies those sets into the learner’s Neon workspace with a fresh timestamp, and
+they appear on the learner’s next sync (signing in triggers one immediately).
+
+Assignment is additive. A learner starts with an empty library and only receives
+what the administrator assigns; demo sets are seeded only in local mode or when
+the administrator presses **Restore demos**. Learners cannot create, scan, edit,
+import or delete library content.
+
+### Where data lives
+
+- Local state is scoped per account: `padanam.web.v1.admin` for the
+  administrator, `padanam.web.v1.<userId>` for each learner, and the unscoped
+  `padanam.web.v1` key for local mode.
+- On the first administrator sign-in, an existing local-mode library is copied
+  once into the admin scope so previous work is not lost.
+- Neon stores sets, questions, attempts and the profile. The administrator uses
+  the workspace `admin:<username>`; each learner uses `user:<id>`.
+- Scan photos, AI keys, the session token and the model catalog are never
+  uploaded.
+
+The legacy `SYNC_TOKEN` path remains available on the server for older
+self-hosted deployments, but the app itself uses the signed-in account. Tables
+are created on the first request:
+
+- `padanam_users` holds learner accounts and password hashes.
 - `padanam_sets` and `padanam_attempts` hold JSON payloads keyed by workspace.
 - `padanam_profile` holds profile, profile timestamp, attempts-cleared timestamp
   and the sync epoch.
-- `padanam_tombstones` records set and attempt deletions.
+- `padanam_tombstones` records set and attempt revisions used during merges.
 
-The workspace is derived from `SYNC_TOKEN`, so the code is both the password and
-the dataset identity. Use a long random value and treat it like a password.
-Normal sync pulls, merges by id and timestamp, then pushes upserts. Deleting a
-set writes a tombstone, clearing attempts writes `attemptsClearedAt`, and
-importing a backup or resetting the app replaces/resets the cloud copy
-authoritatively. Changing `SYNC_TOKEN` starts a separate workspace instead of
-renaming the old one.
-
-`NEON_CONNECTION_STRING` and `SYNC_TOKEN` stay in Pages secrets. The browser
-stores the sync code in `localStorage` under `padanam.sync.v1`; after **Forget
-code** it keeps only a non-secret fingerprint, so reconnecting the same code
-still has the pending deletions. Backups include neither the code nor the
-fingerprint. The service worker bypasses `/api/*`, so sync always reaches the
-network.
+Normal sync pulls, merges by id and timestamp, then pushes upserts. An admin
+backup import replaces the cloud copy authoritatively. The service worker
+bypasses `/api/*`, so account and sync requests always reach the network.
 
 ## What it does
 
-- **Library** — demo sets are seeded on first run; scan papers or create sets
-  and questions by hand. Questions keep aligned English and Malayalam versions.
+- **Library** — browse the sets assigned to the account. The administrator can
+  also scan papers or create sets and questions by hand. Questions keep aligned
+  English and Malayalam versions.
 - **Scanning** — photos are resized in the browser (max 1600 px, JPEG) and sent
   to Gemini, a custom OpenAI-compatible endpoint, or the optional Cloudflare
-  Pages proxy. Nothing is saved until you press **Save to library**. Until the
-  selected provider is configured, the sample extraction demonstrates the flow.
-  **Fetch models** loads the live catalog from Gemini, the custom endpoint's
-  `/models` route, or the Pages `/api/models` Function; built-in fallbacks remain
-  when the browser cannot fetch the list.
+  Pages proxy. Nothing is saved until **Save to library**. Until the selected
+  provider is configured, the sample extraction demonstrates the flow.
+  **Fetch models** loads the live catalog from Gemini, the custom endpoint’s
+  `/models` route, or the Pages `/api/models` Function.
 - **Exams** — timed mocks with an absolute deadline (the timer keeps running if
   you leave), untimed practice, question palette, flags, keyboard shortcuts and
   auto-submit at expiry. Attempts store question snapshots, so past results are
   reviewable even if the set later changes.
 - **Progress** — score trend, streaks, subject accuracy and attempt history,
-  all calculated from locally saved attempts.
-- **Cloud backup** — optional Neon sync for sets, questions, attempts and
-  profile. Off by default; connect it in **Settings → Cloud backup** with the
-  sync code you set in Cloudflare Pages.
-- **Data** — profile, settings, sets and attempts live in `localStorage` under
-  `padanam.web.v1`. JSON export/import moves everything except API keys and the
-  sync code.
+  calculated from attempts saved to the account.
+- **Accounts** — administrator-created users, account-scoped local storage and
+  Neon sync behind the login gate. Sessions survive reloads for 7 days and an
+  offline browser can keep studying its cached copy.
 - **Offline** — served over HTTP, a service worker caches the app shell on the
   first visit. Library, practice, mock tests and review keep working without a
-  connection; only new AI scans and cloud sync need the network. `file://` skips
-  the worker.
+  connection; only new AI scans and account sync need the network. `file://`
+  skips the worker.
 
 ## Scanning providers
 
-Choose the provider in **Settings**. Direct Gemini and custom credentials are
-stored only in this browser; the Cloudflare Pages option keeps the key in Pages
-secrets. No key is ever included in backups. The Scan page uses the sample
-extraction until the selected provider is configured.
+The administrator configures scanning in **Admin console → AI scanning**.
+Direct Gemini and custom credentials are stored only in that browser; the
+Cloudflare Pages option keeps the key in Pages secrets. No key is ever included
+in backups or sent to Neon. The Scan page uses the sample extraction until the
+selected provider is configured.
 
 ### Gemini
 
 Create a key in [Google AI Studio](https://aistudio.google.com/app/apikey), then
-paste it in **Settings**. Use a key restricted to the Generative Language API,
-and rotate it if you share the device.
+paste it in the admin console. Use a key restricted to the Generative Language
+API, and rotate it if you share the device.
 
 The default model is `gemini-2.5-flash`; `gemini-2.5-pro` is available for dense
 pages, and `gemini-2.0-flash` is a fallback for older keys.
@@ -194,7 +222,7 @@ Choose **OpenAI-compatible**, then enter the API base URL (for example
 Padanam appends `/chat/completions` when the URL does not already include it, and
 sends requests straight from the browser with an optional `Authorization: Bearer`
 header. The endpoint must support the OpenAI chat-completions format with image
-inputs and allow cross-origin (CORS) requests from the app's origin.
+inputs and allow cross-origin (CORS) requests from the app’s origin.
 
 A key is optional because local servers often do not need one. Only use endpoints
 you trust: the browser sends the compressed page images directly to that address.
@@ -202,9 +230,8 @@ you trust: the browser sends the compressed page images directly to that address
 ### Cloudflare Pages proxy
 
 Choose **Cloudflare Pages** to send scans to `/api/scan` on the same site. The
-browser sends no API key; the function reads `GEMINI_API_KEY` or
-`OPENAI_API_KEY` from the encrypted Pages secrets. See
-[Deploy to Cloudflare Pages](#deploy-to-cloudflare-pages) for the variables.
+browser sends no API key; the Function reads `GEMINI_API_KEY` or `OPENAI_API_KEY`
+from the encrypted Pages secrets.
 
 ## Files
 
@@ -215,17 +242,22 @@ sw.js                    offline app-shell cache (HTTP only)
 css/tokens.css           design tokens, fonts and base components
 css/app.css              shell, dashboard, library and set detail
 css/views.css            scan, exam setup, runner and results
-css/account.css          progress, profile, settings and editors
+css/account.css          progress, profile, settings, auth and admin console
 js/data.js               demo sets, subjects and sample extraction
-js/core.js               state, persistence, scoring and overlays
-js/gemini.js             image compression, Gemini, OpenAI-compatible and proxy clients
-js/sync.js               optional Neon sync, merge, tombstones and auto-sync
-js/views.js              all page markup and scan/exam UI
-js/app.js                router, actions, forms, clock and startup
+js/core.js               state, scoped persistence, scoring and overlays
+js/gemini.js             image compression and AI provider clients
+js/sync.js               Neon sync client, merge, tombstones and auto-sync
+js/auth.js               account probe, login/logout and session storage
+js/admin.js              admin API client for accounts and assignment
+js/views.js              all page markup, including login and admin
+js/app.js                router, auth gates, actions, forms and startup
 assets/                  logo, favicon and self-hosted OFL fonts
 _routes.json             limits Pages Functions to /api/* requests
-../functions/api/scan.js Cloudflare Pages Function; reads keys from Pages secrets
-../functions/api/sync.js Cloudflare Pages Function; Neon sync, connection string stays server-side
+../functions/_shared.js  Neon, schema, sessions, hashing and HTTP helpers
+../functions/api/auth.js Pages Function; login, session, logout and status
+../functions/api/admin.js Pages Function; create users and assign sets
+../functions/api/sync.js Pages Function; account/legacy Neon sync
+../functions/api/scan.js Pages Function; reads scan keys from Pages secrets
 ```
 
 If you change app files after deploying, bump `CACHE` in `sw.js` so returning
@@ -233,13 +265,16 @@ visitors receive the new shell instead of the cached one.
 
 ## Privacy
 
-Padanam has no account server. Scan photos leave the browser only when you press
-**Extract questions**, and they go to Google Gemini, the custom endpoint, or the
-Cloudflare Pages Function selected in Settings. With the Pages proxy, Cloudflare
-forwards them to the configured provider and keeps the API key server-side.
-Photos are never added to the library.
+Account usernames, password hashes, sets, questions, attempts and profile are
+stored in your Neon database. The browser keeps a signed session token and the
+account-scoped copy of the library in `localStorage`. Passwords are never stored
+in plain text.
 
-Everything else stays in this browser unless you turn on **Cloud backup**. With
-sync on, sets, questions, attempts and profile are sent to the Neon database
-configured in your Pages secrets. Photos, AI keys, device settings and the sync
-code are never uploaded, and exports/backups exclude keys and the sync code.
+Scan photos leave the browser only when the administrator presses **Extract
+questions**, and they go to Google Gemini, the custom endpoint, or the
+Cloudflare Pages Function selected in the admin console. With the Pages proxy,
+Cloudflare forwards them to the configured provider and keeps the API key
+server-side. Photos are never added to the library or uploaded to Neon.
+
+AI keys, scan photos, the session token and the fetched model catalog are never
+included in backups or sync payloads.

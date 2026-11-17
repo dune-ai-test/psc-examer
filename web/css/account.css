@@ -400,3 +400,174 @@ html[data-theme="dark"] .lang-choice { background: var(--surface); }
 html[data-theme="dark"] .details-block .input,
 html[data-theme="dark"] .details-block .textarea { background: var(--surface-field); }
 html[data-theme="dark"] .option-input.is-correct .input { border-color: #2A5B4E; }
+
+/* ── Role visibility ──────────────────────────────────── */
+[hidden] { display: none !important; }
+@media (max-width: 820px) {
+  body:not(.is-admin) .tabbar { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ── Auth gate ────────────────────────────────────────── */
+body.is-auth {
+  background:
+    radial-gradient(900px 520px at 18% -10%, rgba(91, 75, 246, .16), transparent 62%),
+    radial-gradient(720px 460px at 92% 110%, rgba(16, 185, 129, .12), transparent 60%),
+    var(--cloud);
+}
+body.is-auth .rail,
+body.is-auth .mobile-top,
+body.is-auth .tabbar { display: none; }
+body.is-auth .app-main { margin-left: 0; min-height: 100vh; }
+body.is-auth .view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: none;
+  min-height: 100vh;
+  padding: 36px 20px;
+}
+
+.auth-gate { width: 100%; max-width: 460px; }
+.auth-card {
+  padding: 30px 28px;
+  border: 1px solid var(--hairline);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 34px 80px -46px rgba(18, 23, 43, .55);
+}
+.auth-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+  text-decoration: none;
+}
+.auth-brand img { border-radius: 12px; box-shadow: 0 10px 22px -12px rgba(18, 23, 43, .7); }
+.auth-brand span { display: flex; flex-direction: column; }
+.auth-brand strong {
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -.03em;
+  color: var(--navy);
+}
+.auth-brand small { color: var(--muted); font-size: 9.5px; }
+.auth-card .eyebrow { margin-bottom: 9px; }
+.auth-card h1 {
+  font-family: var(--font-display);
+  font-size: clamp(24px, 4.6vw, 31px);
+  font-weight: 600;
+  line-height: 1.08;
+  letter-spacing: -.035em;
+  color: var(--navy);
+}
+.auth-sub { margin-top: 9px; color: var(--muted); font-size: 11.5px; line-height: 1.6; }
+.auth-form { margin-top: 20px; }
+.auth-form .field + .field { margin-top: 12px; }
+.auth-form .btn { margin-top: 16px; height: 44px; }
+.auth-error {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: var(--danger-soft);
+  color: var(--danger-ink);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+.auth-error:empty { display: none; }
+.auth-note { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--hairline); color: var(--muted); font-size: 9.5px; line-height: 1.6; }
+.auth-note .mono { font-size: 9px; }
+.setup-list { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; }
+.setup-list div {
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-field);
+}
+.setup-list code {
+  display: block;
+  color: var(--indigo-text);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.setup-list span { display: block; margin-top: 3px; color: var(--muted); font-size: 9.5px; line-height: 1.5; }
+
+/* ── Admin console ────────────────────────────────────── */
+.admin-create { padding-top: 16px; border-top: 1px solid var(--hairline); }
+.admin-user-list { display: flex; flex-direction: column; gap: 10px; }
+.admin-user {
+  padding: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 13px;
+  background: var(--surface-field);
+}
+.admin-user-head { display: flex; align-items: center; gap: 10px; }
+.admin-user-copy { flex: 1; min-width: 0; }
+.admin-user-copy strong {
+  display: block;
+  overflow: hidden;
+  color: var(--navy);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-user-copy small { display: block; margin-top: 1px; color: var(--muted); font-size: 9.5px; }
+.admin-user-sets { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 11px; }
+.admin-user-sets .chip { font-size: 9px; }
+.admin-user-sets .chip .icon { width: 11px; height: 11px; }
+.admin-assign { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); }
+.admin-assign summary {
+  color: var(--indigo-text);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.admin-assign summary::-webkit-details-marker { display: none; }
+.admin-assign summary::after { content: " +"; font-family: var(--font-mono); }
+.admin-assign[open] summary::after { content: " −"; }
+.admin-set-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 10px; }
+.admin-set-choice {
+  align-items: flex-start;
+  padding: 9px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.admin-set-choice span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.admin-set-choice strong { font-size: 10.5px; line-height: 1.3; }
+.admin-set-choice small { color: var(--muted); font-size: 9px; }
+.admin-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 14px;
+  border: 1px dashed var(--hairline);
+  border-radius: 13px;
+  text-align: center;
+}
+.admin-empty h3 { margin-top: 9px; font-size: 13px; }
+.admin-empty p { max-width: 300px; margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.55; }
+
+@media (max-width: 720px) {
+  .auth-card { padding: 24px 20px; border-radius: 17px; }
+  .admin-set-list { grid-template-columns: 1fr; }
+  .admin-user { padding: 12px; }
+}
+
+/* ── Dark theme: auth and admin ───────────────────────── */
+html[data-theme="dark"] body.is-auth {
+  background:
+    radial-gradient(900px 520px at 18% -10%, rgba(91, 75, 246, .28), transparent 62%),
+    radial-gradient(720px 460px at 92% 110%, rgba(16, 185, 129, .16), transparent 60%),
+    var(--cloud);
+}
+html[data-theme="dark"] .auth-card { border-color: var(--hairline); }
+html[data-theme="dark"] .auth-brand strong,
+html[data-theme="dark"] .auth-card h1,
+html[data-theme="dark"] .admin-user-copy strong { color: var(--ink); }
+html[data-theme="dark"] .admin-user,
+html[data-theme="dark"] .setup-list div { background: var(--surface-muted); }
+html[data-theme="dark"] .admin-set-choice { background: var(--surface-field); }

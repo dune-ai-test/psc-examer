@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Padanam — PSC practice, in your browser</title>
-<meta name="description" content="Padanam for the web: scan PSC question papers with Gemini or a custom OpenAI-compatible API, keep a bilingual library, and take practice or timed mock exams. All data stays in your browser.">
+<meta name="description" content="Padanam for the web: sign in to a bilingual Kerala PSC study library assigned by your administrator, take practice or timed mock exams, and keep progress in sync through Neon.">
 <meta name="theme-color" content="#F2F4F9">
 <meta name="color-scheme" content="light dark">
 <script>
@@ -35,6 +35,8 @@
 <script src="js/theme.js" defer></script>
 <script src="js/gemini.js" defer></script>
 <script src="js/sync.js" defer></script>
+<script src="js/auth.js" defer></script>
+<script src="js/admin.js" defer></script>
 <script src="js/views.js" defer></script>
 <script src="js/app.js" defer></script>
 </head>
@@ -88,6 +90,8 @@
   <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3.5v11m0 0 4.2-4.2M12 14.5 7.8 10.3"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
   <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4.5L6 21V3Z"/></symbol>
   <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4"/><path d="M14 8l4 4-4 4M18 12H9"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.5v.2"/></symbol>
 </svg>
 
 <div class="app-shell" id="appShell">
@@ -102,7 +106,7 @@
       </span>
     </a>
 
-    <a class="btn btn-primary rail-cta" href="#/scan">
+    <a class="btn btn-primary rail-cta" href="#/scan" data-admin-only>
       <svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg>
       Scan a paper
     </a>
@@ -115,6 +119,7 @@
       <p class="rail-label mono">You</p>
       <a href="#/profile" data-nav="profile"><svg class="icon" aria-hidden="true"><use href="#i-user"/></svg>Profile</a>
       <a href="#/settings" data-nav="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>Settings</a>
+      <a href="#/admin" data-nav="admin" data-admin-only><svg class="icon" aria-hidden="true"><use href="#i-lock"/></svg>Admin console</a>
     </nav>
 
     <div class="rail-bottom">
@@ -132,7 +137,7 @@
         <span class="avatar avatar--sm" data-bind="avatar">P</span>
         <span class="rail-user-copy">
           <strong data-bind="user-name">Set up profile</strong>
-          <small>Local to this browser</small>
+          <small data-bind="user-role">Local to this browser</small>
         </span>
         <svg class="icon" aria-hidden="true"><use href="#i-chevron-right"/></svg>
       </a>
@@ -168,7 +173,7 @@
   <nav class="tabbar" aria-label="Sections">
     <a href="#/home" data-nav="home"><svg class="icon" aria-hidden="true"><use href="#i-home"/></svg><span>Home</span></a>
     <a href="#/library" data-nav="library"><svg class="icon" aria-hidden="true"><use href="#i-book"/></svg><span>Library</span></a>
-    <a class="tabbar-scan" href="#/scan" data-nav="scan" aria-label="Scan a paper">
+    <a class="tabbar-scan" href="#/scan" data-nav="scan" data-admin-only aria-label="Scan a paper">
       <span class="tabbar-scan-btn"><svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg></span>
       <span>Scan</span>
     </a>
