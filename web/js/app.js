@@ -481,6 +481,19 @@
     });
   };
 
+  actions['set-theme'] = function (btn) {
+    if (!A.theme) return;
+    var value = btn.getAttribute('data-value') || 'system';
+    A.theme.set(value, true);
+    var group = btn.closest('.theme-switch');
+    if (!group) return;
+    group.querySelectorAll('[data-action="set-theme"]').forEach(function (option) {
+      var on = option === btn;
+      option.classList.toggle('is-active', on);
+      option.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  };
+
   actions['library-source'] = function (btn) {
     var value = btn.getAttribute('data-value') || 'all';
     A.ui.library.source = value;

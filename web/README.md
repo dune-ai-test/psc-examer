@@ -2,6 +2,8 @@
 
 A complete browser version of the Padanam Kerala PSC study app, built with plain
 HTML, CSS and JavaScript. There is no build step, framework or package install.
+Light, dark and system-following themes are available in **Settings →
+Appearance**, and the choice is remembered in this browser.
 
 ## Run it
 

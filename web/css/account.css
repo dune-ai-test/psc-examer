@@ -212,8 +212,14 @@
 .sync-auto strong { font-size: 11.5px; color: var(--navy); }
 .sync-auto small { font-size: 10px; color: var(--muted); line-height: 1.45; }
 
+.theme-switch { margin-top: 2px; }
+.theme-switch button { min-height: 38px; padding: 0 16px; gap: 7px; }
+.theme-switch button .icon { width: 15px; height: 15px; }
+
 @media (max-width: 640px) {
   .provider-grid { grid-template-columns: 1fr; }
+  .theme-switch { width: 100%; }
+  .theme-switch button { flex: 1; }
 }
 
 .settings-note {
@@ -346,3 +352,11 @@
   .profile-stats { gap: 4px; }
   .profile-stats strong { font-size: 21px; }
 }
+
+/* ── Dark theme: progress, profile, settings, forms ───── */
+html[data-theme="dark"] .progress-kpis .stat-tile { background: var(--surface); }
+html[data-theme="dark"] .trend-chart .dot { fill: var(--surface); }
+html[data-theme="dark"] .lang-choice { background: var(--surface); }
+html[data-theme="dark"] .details-block .input,
+html[data-theme="dark"] .details-block .textarea { background: var(--surface-field); }
+html[data-theme="dark"] .option-input.is-correct .input { border-color: #2A5B4E; }

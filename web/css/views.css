@@ -564,3 +564,36 @@
   .review-option { font-size: 11px; }
   .review-explain { flex-direction: column; gap: 4px; }
 }
+
+/* ── Dark theme: scan, exam, results ──────────────────── */
+html[data-theme="dark"] .scan-drop { border-color: var(--hairline-strong); }
+html[data-theme="dark"] .scan-drop-icon { border-color: var(--indigo-soft); background: var(--surface); }
+html[data-theme="dark"] .mode-option { background: var(--surface); }
+html[data-theme="dark"] .mode-option:hover { border-color: var(--indigo-soft); }
+html[data-theme="dark"] .mode-icon { background: var(--surface); }
+html[data-theme="dark"] .choice { background: var(--surface); }
+html[data-theme="dark"] .choice.is-active { background: #6F5CF5; border-color: #6F5CF5; color: #fff; }
+html[data-theme="dark"] .exam-top { background: rgba(20, 26, 46, .92); }
+html[data-theme="dark"] .option { background: var(--surface); }
+html[data-theme="dark"] .option:hover { border-color: var(--indigo-soft); }
+html[data-theme="dark"] .option-letter { color: var(--muted); }
+html[data-theme="dark"] .flag-btn.is-active { border-color: #5C4720; }
+html[data-theme="dark"] .palette-btn { background: var(--surface); }
+html[data-theme="dark"] .palette-btn.is-answered { border-color: var(--indigo-soft); }
+html[data-theme="dark"] .palette-legend i { background: var(--surface); }
+html[data-theme="dark"] .palette-legend .answered { border-color: var(--indigo-soft); }
+html[data-theme="dark"] .result-hero {
+  background:
+    radial-gradient(ellipse 60% 120% at 100% 0%, var(--success-soft), transparent 60%),
+    var(--surface);
+}
+html[data-theme="dark"] .result-hero.is-fail {
+  background:
+    radial-gradient(ellipse 60% 120% at 100% 0%, var(--amber-soft), transparent 60%),
+    var(--surface);
+}
+html[data-theme="dark"] .review-card { background: var(--surface); }
+html[data-theme="dark"] .review-option.is-correct { border-color: #2A5B4E; }
+html[data-theme="dark"] .review-option.is-correct .letter { background: var(--surface); }
+html[data-theme="dark"] .review-option.is-selected { border-color: #663036; }
+html[data-theme="dark"] .review-option.is-selected.is-correct { border-color: #2A5B4E; }

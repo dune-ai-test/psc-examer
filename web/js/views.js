@@ -1820,6 +1820,13 @@
       '</button>';
     };
 
+    var themePref = A.theme ? A.theme.preference() : 'system';
+    var themeOption = function (id, iconName, label) {
+      var on = themePref === id;
+      return '<button type="button"' + (on ? ' class="is-active"' : '') + ' data-action="set-theme" data-value="' + id + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
+        icon(iconName) + '<span>' + label + '</span></button>';
+    };
+
     var proxy = A.gemini.proxy();
     var providerReady = provider.id === 'pages' && !proxy.checked ? false : provider.ready;
     var providerStatus;
@@ -1846,6 +1853,18 @@
 
       '<div class="settings-grid">' +
         '<div class="settings-main">' +
+          '<section class="card settings-card" id="appearance">' +
+            '<div class="settings-card-head">' +
+              '<span class="settings-icon">' + icon('moon') + '</span>' +
+              '<div><h2>Appearance</h2><p>Pick a theme for this browser. System follows your device setting automatically.</p></div>' +
+            '</div>' +
+            '<div class="segmented theme-switch" role="group" aria-label="Color theme">' +
+              themeOption('light', 'sun', 'Light') +
+              themeOption('dark', 'moon', 'Dark') +
+              themeOption('system', 'monitor', 'System') +
+            '</div>' +
+          '</section>' +
+
           '<form class="card settings-card" data-form="settings" id="settingsForm">' +
             '<div class="settings-card-head">' +
               '<span class="settings-icon">' + icon('spark') + '</span>' +
