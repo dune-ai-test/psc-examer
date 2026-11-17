@@ -715,6 +715,68 @@
     }
   }
 
+  function setModelStatus(provider, message, tone) {
+    var id = provider === 'openai'
+      ? 'openaiModelStatus'
+      : provider === 'pages'
+        ? 'pagesModelStatus'
+        : 'geminiModelStatus';
+    var el = document.getElementById(id);
+    if (!el) return;
+
+    el.textContent = message;
+    el.classList.remove('is-error', 'is-success');
+    if (tone === 'error') el.classList.add('is-error');
+    else if (tone === 'success') el.classList.add('is-success');
+  }
+
+  function applyModelCatalog(provider, result) {
+    var models = result && Array.isArray(result.models) ? result.models : [];
+    var host = result && result.host ? result.host : 'the provider';
+
+    if (provider === 'gemini') {
+      var select = document.getElementById('model');
+      if (select) {
+        var current = String(select.value || A.state.settings.model || '');
+        var options = models.slice();
+        if (current && !options.some(function (model) { return model.id === current; })) {
+          options.unshift({ id: current, label: current + ' (saved)' });
+        }
+        select.innerHTML = options.map(function (model) {
+          return '<option value="' + A.esc(model.id) + '"' + (model.id === current ? ' selected' : '') + '>' +
+            A.esc(model.label || model.id) + '</option>';
+        }).join('');
+        select.value = current;
+      }
+      setModelStatus('gemini', 'Fetched ' + A.plural(models.length, 'model') + ' from Gemini. Choose one below.', 'success');
+      return;
+    }
+
+    if (provider === 'openai') {
+      var list = document.getElementById('openaiModelList');
+      if (list) {
+        list.innerHTML = models.map(function (model) {
+          return '<option value="' + A.esc(model.id) + '">' +
+            (model.label && model.label !== model.id ? A.esc(model.label) : '') + '</option>';
+        }).join('');
+      }
+      setModelStatus('openai', 'Fetched ' + A.plural(models.length, 'model') + ' from ' + host + '. The field stays editable.', 'success');
+      return;
+    }
+
+    var catalog = document.getElementById('pagesModelCatalog');
+    if (catalog) {
+      catalog.innerHTML = models.map(function (model) {
+        return '<span class="model-chip mono" title="' + A.esc(model.id) + '">' + A.esc(model.id) + '</span>';
+      }).join('');
+    }
+    var backend = result && result.provider
+      ? result.provider === 'openai' ? ' via an OpenAI-compatible endpoint' : ' via Gemini'
+      : '';
+    var defaultModel = result && result.model ? ' Server default: ' + result.model + '.' : '';
+    setModelStatus('pages', 'Fetched ' + A.plural(models.length, 'model') + ' from ' + host + backend + '.' + defaultModel, 'success');
+  }
+
   function selectSettingsProvider(form, value) {
     var provider = value === 'openai' ? 'openai' : value === 'pages' ? 'pages' : 'gemini';
     var hidden = form.elements.provider;
@@ -978,6 +1040,57 @@
     }).catch(function (err) {
       out.innerHTML = noteBox('danger', 'alert', A.esc(err && err.message ? err.message : 'The key could not be tested.'));
     }).then(finish);
+  };
+
+  actions['fetch-models'] = function (btn) {
+    var form = document.getElementById('settingsForm');
+    if (!form) return Promise.resolve();
+
+    var provider = btn.getAttribute('data-provider');
+    provider = provider === 'openai' ? 'openai' : provider === 'pages' ? 'pages' : 'gemini';
+    var opts = { provider: provider };
+
+    if (provider === 'gemini') {
+      opts.apiKey = String((form.elements.apiKey && form.elements.apiKey.value) || '').trim();
+      if (!opts.apiKey) {
+        setModelStatus('gemini', 'Add a Gemini API key above, then fetch the models it can use.', 'error');
+        return Promise.resolve();
+      }
+    }
+
+    if (provider === 'openai') {
+      opts.baseUrl = String((form.elements.openaiUrl && form.elements.openaiUrl.value) || '').trim();
+      opts.apiKey = String((form.elements.openaiKey && form.elements.openaiKey.value) || '').trim();
+      if (!opts.baseUrl) {
+        setModelStatus('openai', 'Add the OpenAI-compatible base URL above, then fetch the list.', 'error');
+        return Promise.resolve();
+      }
+    }
+
+    var original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner spinner--sm"></span> Fetching…';
+    setModelStatus(provider, provider === 'pages'
+      ? 'Asking this site’s /api/models function for the list…'
+      : provider === 'openai'
+        ? 'Asking the endpoint for its model list…'
+        : 'Asking Gemini which models this key can use…');
+
+    return A.gemini.fetchModels(opts).then(function (result) {
+      applyModelCatalog(provider, result);
+      A.toast({
+        title: 'Models updated',
+        message: A.plural(result.models.length, 'model') + ' available from ' + (result.host || 'the provider') + '.',
+        kind: 'success'
+      });
+    }).catch(function (err) {
+      var message = err && err.message ? err.message : 'The model list could not be loaded.';
+      setModelStatus(provider, message, 'error');
+      A.toast({ title: 'Could not fetch models', message: message, kind: 'error' });
+    }).then(function () {
+      btn.disabled = false;
+      btn.innerHTML = original;
+    });
   };
 
   actions['scan-remove'] = function (btn) {

@@ -13,10 +13,14 @@
   var Seed = window.PadanamSeed;
 
   var API_ROOT = 'https://generativelanguage.googleapis.com/v1beta/models/';
+  var API_MODELS = 'https://generativelanguage.googleapis.com/v1beta/models';
   var MAX_SIDE = 1600;
   var QUALITY = 0.86;
   var MAX_IMAGES = 8;
   var PROXY_URL = './api/scan';
+  var MODELS_URL = './api/models';
+  var MODEL_TIMEOUT = 20000;
+  var MAX_LISTED_MODELS = 250;
 
   var proxyState = {
     checked: false,
@@ -34,6 +38,17 @@
     { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', note: 'Slower, better for dense or faint pages' },
     { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', note: 'Older fallback if a key lacks 2.5 access' }
   ];
+
+  var OPENAI_MODELS = [
+    'gpt-4o-mini',
+    'gpt-4o',
+    'gpt-4.1-mini',
+    'qwen2.5-vl-72b-instruct',
+    'llama-3.2-11b-vision-instruct'
+  ];
+
+  /* Fetched lists stay in memory only: never in storage, backups or sync. */
+  var modelCatalog = { gemini: null, openai: null, pages: null };
 
   function loadImage(src) {
     return new Promise(function (resolve, reject) {
@@ -58,6 +73,7 @@
    */
   A.gemini = {
     MODELS: MODELS,
+    OPENAI_MODELS: OPENAI_MODELS,
     MAX_IMAGES: MAX_IMAGES,
     MAX_SIDE: MAX_SIDE,
 
@@ -67,6 +83,18 @@
 
     openAIEndpoint: function (baseUrl) {
       return openAIEndpoint(baseUrl);
+    },
+
+    openAIModelsEndpoint: function (baseUrl) {
+      return openAIModelsEndpoint(baseUrl);
+    },
+
+    catalog: function (provider) {
+      return catalogFor(provider);
+    },
+
+    fetchModels: function (opts) {
+      return fetchModels(opts || {});
     },
 
     proxy: function () {
@@ -527,6 +555,229 @@
     return extraction;
   }
 
+  /* ── Live model discovery ───────────────────────────── */
+  async function fetchModels(opts) {
+    var provider = opts.provider === 'openai'
+      ? 'openai'
+      : opts.provider === 'pages'
+        ? 'pages'
+        : 'gemini';
+    if (typeof fetch !== 'function') throw new Error('This browser cannot fetch the model list.');
+    if (provider === 'pages') return fetchPagesModels();
+    if (provider === 'openai') return fetchOpenAIModels(opts);
+    return fetchGeminiModels(opts);
+  }
+
+  async function fetchGeminiModels(opts) {
+    var apiKey = String(opts.apiKey || '').trim();
+    if (!apiKey) throw new Error('Add a Gemini API key first, then fetch the models it can use.');
+
+    var entries = [];
+    var pageToken = '';
+    for (var page = 0; page < 4; page += 1) {
+      var url = new URL(API_MODELS);
+      url.searchParams.set('pageSize', '1000');
+      url.searchParams.set('key', apiKey);
+      if (pageToken) url.searchParams.set('pageToken', pageToken);
+
+      var result = await requestJsonWithTimeout(url.toString(), {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        cache: 'no-store'
+      }, MODEL_TIMEOUT, 'Gemini', 'Check your connection or any browser extension that blocks requests.');
+
+      if (result.response.status === 404) {
+        throw new Error('The Gemini models endpoint was not found. Try again later.');
+      }
+      if (!result.response.ok) throw apiError(result.response.status, result.data);
+
+      var batch = result.data && Array.isArray(result.data.models) ? result.data.models : [];
+      batch.forEach(function (item) {
+        var methods = item && Array.isArray(item.supportedGenerationMethods)
+          ? item.supportedGenerationMethods
+          : [];
+        if (methods.indexOf('generateContent') < 0) return;
+        entries.push({ id: item && item.name, label: item && item.displayName });
+      });
+
+      pageToken = String((result.data && result.data.nextPageToken) || '');
+      if (!pageToken) break;
+    }
+
+    var models = finalizeModels(entries, 'gemini');
+    if (!models.length) {
+      throw new Error('Gemini returned no models that support scanning. Check that the Generative Language API is enabled for this key.');
+    }
+
+    rememberModels('gemini', models, 'Google Gemini', 'gemini');
+    return { models: models, provider: 'gemini', host: 'Google Gemini', fetchedAt: Date.now() };
+  }
+
+  async function fetchOpenAIModels(opts) {
+    var baseUrl = String(opts.baseUrl || '').trim();
+    if (!baseUrl) throw new Error('Add the OpenAI-compatible base URL first.');
+
+    var endpoint = openAIModelsEndpoint(baseUrl);
+    var apiKey = String(opts.apiKey || '').trim();
+    var host = endpointHost(endpoint);
+    var headers = { Accept: 'application/json' };
+    if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
+
+    var result = await requestJsonWithTimeout(endpoint, {
+      method: 'GET',
+      headers: headers,
+      cache: 'no-store'
+    }, MODEL_TIMEOUT, host, 'Check the URL and whether the endpoint allows browser (CORS) requests.');
+
+    if (!result.response.ok) throw openAIError(result.response.status, result.data, endpoint);
+
+    var models = finalizeModels(modelEntries(result.data), 'openai');
+    if (!models.length) {
+      throw new Error('The endpoint returned no model names. Check the base URL; it usually ends in /v1.');
+    }
+
+    rememberModels('openai', models, host, endpoint);
+    return { models: models, provider: 'openai', host: host, fetchedAt: Date.now() };
+  }
+
+  async function fetchPagesModels() {
+    if (!/^https?:$/.test(window.location.protocol)) {
+      throw new Error('Fetching the server model list needs the deployed http(s) site.');
+    }
+
+    var result = await requestJsonWithTimeout(MODELS_URL, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store'
+    }, MODEL_TIMEOUT, 'this site’s model function', 'Deploy the functions folder with the site.');
+
+    if (!result.response.ok) {
+      var detail = apiMessage(result.data);
+      if (result.response.status === 404) {
+        throw new Error('No model endpoint was found at /api/models. Deploy the updated functions folder with the site.');
+      }
+      if (result.response.status === 503) {
+        throw new Error(detail || 'The model function is online, but the provider secret is missing in Cloudflare Pages.');
+      }
+      throw new Error(detail || 'The model function returned HTTP ' + result.response.status + '.');
+    }
+
+    var data = result.data || {};
+    var models = finalizeModels(modelEntries(data), 'pages');
+    if (!models.length) {
+      throw new Error('The model function returned an empty list. Check the provider secret in Cloudflare Pages.');
+    }
+
+    var host = String(data.host || 'this site');
+    rememberModels('pages', models, host, String(data.provider || '') + '|' + host);
+    return {
+      models: models,
+      provider: String(data.provider || ''),
+      model: String(data.model || ''),
+      host: host,
+      fetchedAt: Date.now()
+    };
+  }
+
+  async function requestJsonWithTimeout(url, init, timeout, label, networkHint) {
+    var controller = new AbortController();
+    var timer = window.setTimeout(function () { controller.abort(); }, timeout);
+    var response;
+
+    try {
+      response = await fetch(url, Object.assign({}, init, { signal: controller.signal }));
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        throw new Error(label + ' did not respond in time. Try again.');
+      }
+      if (err instanceof TypeError) {
+        throw new Error('Could not reach ' + label + '. ' + (networkHint || 'Check your connection.'));
+      }
+      throw err;
+    } finally {
+      window.clearTimeout(timer);
+    }
+
+    return { response: response, data: await readJson(response) };
+  }
+
+  function catalogFor(provider) {
+    var key = provider === 'openai' ? 'openai' : provider === 'pages' ? 'pages' : 'gemini';
+    var entry = modelCatalog[key];
+    if (!entry || !entry.models || !entry.models.length) return null;
+    return {
+      models: entry.models.slice(),
+      host: entry.host,
+      signature: entry.signature,
+      fetchedAt: entry.fetchedAt
+    };
+  }
+
+  function rememberModels(provider, models, host, signature) {
+    modelCatalog[provider] = {
+      models: models,
+      host: host,
+      signature: signature || '',
+      fetchedAt: Date.now()
+    };
+  }
+
+  function modelEntries(data) {
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.data)) return data.data;
+    if (data && Array.isArray(data.models)) return data.models;
+    if (data && Array.isArray(data.result)) return data.result;
+    return [];
+  }
+
+  function finalizeModels(entries, provider) {
+    var seen = {};
+    var models = [];
+
+    entries.forEach(function (entry) {
+      var id = typeof entry === 'string'
+        ? entry
+        : String((entry && (entry.id || entry.name || entry.model)) || '');
+      id = id.trim().replace(/^models\//, '');
+      if (!id || id.length > 200 || /[\u0000-\u001f\u007f]/.test(id)) return;
+
+      var key = id.toLowerCase();
+      if (seen[key]) return;
+      seen[key] = true;
+
+      var label = entry && typeof entry === 'object'
+        ? cleanLabel(entry.label || entry.displayName || id)
+        : cleanLabel(id);
+      models.push({ id: id, label: label || id });
+    });
+
+    models.sort(provider === 'gemini' ? compareGeminiModels : compareModelNames);
+    return models.slice(0, MAX_LISTED_MODELS);
+  }
+
+  function cleanLabel(value) {
+    return String(value || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 120);
+  }
+
+  function compareModelNames(a, b) {
+    return a.id.localeCompare(b.id, 'en', { sensitivity: 'base' });
+  }
+
+  function compareGeminiModels(a, b) {
+    var preferred = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'];
+    var ai = preferred.indexOf(a.id);
+    var bi = preferred.indexOf(b.id);
+    if (ai !== bi) {
+      if (ai < 0) return 1;
+      if (bi < 0) return -1;
+      return ai - bi;
+    }
+    return compareModelNames(a, b);
+  }
+
   /* ── Response helpers ────────────────────────────────── */
   async function readJson(response) {
     var text = await response.text();
@@ -663,6 +914,13 @@
     }
     url.pathname = path;
     url.hash = '';
+    return url.toString();
+  }
+
+  function openAIModelsEndpoint(baseUrl) {
+    var endpoint = openAIEndpoint(baseUrl);
+    var url = new URL(endpoint);
+    url.pathname = url.pathname.replace(/\/chat\/completions$/i, '/models');
     return url.toString();
   }
 

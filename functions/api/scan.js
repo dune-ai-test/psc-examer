@@ -80,7 +80,7 @@ async function handleScan(context) {
   }
 }
 
-function scanConfig(env) {
+export function scanConfig(env) {
   const provider = String(env.SCAN_PROVIDER || 'gemini').trim().toLowerCase();
 
   if (provider === 'openai') {
@@ -304,7 +304,7 @@ function validateImages(value) {
   });
 }
 
-async function requestJson(url, init, timeout, label) {
+export async function requestJson(url, init, timeout, label, timeoutMessage) {
   const controller = new AbortController();
   const timer = setTimeout(function () { controller.abort(); }, timeout);
 
@@ -318,7 +318,7 @@ async function requestJson(url, init, timeout, label) {
     return { response, data };
   } catch (err) {
     if (err && err.name === 'AbortError') {
-      throw new Error(label + ' timed out. Try fewer pages, or a faster model.');
+      throw new Error(timeoutMessage || label + ' timed out. Try fewer pages, or a faster model.');
     }
     throw new Error('Could not reach ' + label + '. Check the endpoint and your Cloudflare configuration.');
   } finally {
@@ -326,13 +326,13 @@ async function requestJson(url, init, timeout, label) {
   }
 }
 
-function openAIHeaders(apiKey) {
+export function openAIHeaders(apiKey) {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = 'Bearer ' + apiKey;
   return headers;
 }
 
-function openAIEndpoint(baseUrl) {
+export function openAIEndpoint(baseUrl) {
   const value = String(baseUrl || '').trim();
   if (!value) throw new Error('OPENAI_BASE_URL is empty.');
 
@@ -355,7 +355,14 @@ function openAIEndpoint(baseUrl) {
   return url.toString();
 }
 
-function endpointHost(endpoint) {
+export function openAIModelsEndpoint(baseUrl) {
+  const endpoint = openAIEndpoint(baseUrl);
+  const url = new URL(endpoint);
+  url.pathname = url.pathname.replace(/\/chat\/completions$/i, '/models');
+  return url.toString();
+}
+
+export function endpointHost(endpoint) {
   try {
     return new URL(endpoint).host;
   } catch (err) {
@@ -417,7 +424,7 @@ function providerError(status, data, provider) {
   return new Error(message);
 }
 
-function apiMessage(data) {
+export function apiMessage(data) {
   if (!data) return '';
   if (typeof data.error === 'string') return data.error;
   if (data.error && data.error.message) return String(data.error.message);
@@ -427,7 +434,7 @@ function apiMessage(data) {
   return '';
 }
 
-function json(body, status, extraHeaders) {
+export function json(body, status, extraHeaders) {
   const headers = Object.assign({
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',

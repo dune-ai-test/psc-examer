@@ -71,6 +71,13 @@ requests, uses the server-side key, and never returns the key to the browser.
 The `web/_routes.json` file keeps static assets off the Functions invocation
 path.
 
+A companion Function at `/api/models` lists the models available to the
+server-side provider. It uses Gemini's `ListModels` API or an OpenAI-compatible
+`GET /models` request, and returns only model ids and display labels. In
+**Settings → AI scanning → Fetch models**, the Pages provider shows that list as
+a read-only catalog. Keys never reach the browser, and fetched lists stay in
+memory only — they are not written to `localStorage`, backups or Neon.
+
 > Pages Functions require Git integration or a Wrangler deployment. Direct
 > Upload from the Cloudflare dashboard does not include the `functions/`
 > directory.
@@ -144,6 +151,9 @@ network.
   to Gemini, a custom OpenAI-compatible endpoint, or the optional Cloudflare
   Pages proxy. Nothing is saved until you press **Save to library**. Until the
   selected provider is configured, the sample extraction demonstrates the flow.
+  **Fetch models** loads the live catalog from Gemini, the custom endpoint's
+  `/models` route, or the Pages `/api/models` Function; built-in fallbacks remain
+  when the browser cannot fetch the list.
 - **Exams** — timed mocks with an absolute deadline (the timer keeps running if
   you leave), untimed practice, question palette, flags, keyboard shortcuts and
   auto-submit at expiry. Attempts store question snapshots, so past results are

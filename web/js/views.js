@@ -1803,7 +1803,8 @@
       }
     }
 
-    var models = A.gemini.MODELS.slice();
+    var geminiCatalog = A.gemini.catalog('gemini');
+    var models = geminiCatalog ? geminiCatalog.models.slice() : A.gemini.MODELS.slice();
     if (!models.some(function (m) { return m.id === settings.model; })) {
       models.unshift({ id: settings.model, label: settings.model, note: 'Saved model' });
     }
@@ -1811,6 +1812,32 @@
     var modelOptions = models.map(function (model) {
       return '<option value="' + e(model.id) + '"' + (model.id === settings.model ? ' selected' : '') + '>' + e(model.label) + '</option>';
     }).join('');
+
+    var geminiModelStatus = geminiCatalog
+      ? 'Fetched ' + A.plural(geminiCatalog.models.length, 'model') + ' from ' + geminiCatalog.host + '. Flash is faster; Pro handles dense pages better.'
+      : 'Fetch the list to see every model this key can use. Flash is faster and cheaper; Pro handles dense, faint pages better.';
+
+    var openaiCatalog = A.gemini.catalog('openai');
+    var openaiModels = openaiCatalog
+      ? openaiCatalog.models
+      : A.gemini.OPENAI_MODELS.map(function (id) { return { id: id, label: id }; });
+    var openaiModelOptions = openaiModels.map(function (model) {
+      return '<option value="' + e(model.id) + '">' + (model.label && model.label !== model.id ? e(model.label) : '') + '</option>';
+    }).join('');
+
+    var openaiModelStatus = openaiCatalog
+      ? 'Fetched ' + A.plural(openaiCatalog.models.length, 'model') + ' from ' + openaiCatalog.host + '. The model field stays editable.'
+      : 'Use a vision-capable model. Fetch the list from your endpoint, or type any model name.';
+
+    var pagesCatalog = A.gemini.catalog('pages');
+    var pagesCatalogHtml = pagesCatalog
+      ? pagesCatalog.models.map(function (model) {
+          return '<span class="model-chip mono" title="' + e(model.id) + '">' + e(model.id) + '</span>';
+        }).join('')
+      : '';
+    var pagesModelStatus = pagesCatalog
+      ? 'Fetched ' + A.plural(pagesCatalog.models.length, 'model') + ' from this site’s /api/models function. The server picks the model used for scans.'
+      : 'Load the list to see which models this site’s Pages function can use.';
 
     var providerOption = function (id, iconName, title, note) {
       var on = provider.id === id;
@@ -1892,9 +1919,12 @@
                 '<span class="field-hint">Create a key in <a class="link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio</a>. Free-tier keys work for occasional scanning.</span>' +
               '</div>' +
               '<div class="field" style="margin-top:14px">' +
-                '<label class="field-label" for="model">Gemini model</label>' +
+                '<div class="field-label-row">' +
+                  '<label class="field-label" for="model">Gemini model</label>' +
+                  '<button type="button" class="btn btn-ghost btn-sm model-fetch" data-action="fetch-models" data-provider="gemini">' + icon('refresh') + ' Fetch models</button>' +
+                '</div>' +
                 '<select class="select" id="model" name="model">' + modelOptions + '</select>' +
-                '<span class="field-hint">Flash is faster and cheaper. Pro handles dense, faint pages better.</span>' +
+                '<span class="field-hint model-status" id="geminiModelStatus" aria-live="polite">' + e(geminiModelStatus) + '</span>' +
               '</div>' +
             '</div>' +
 
@@ -1914,16 +1944,13 @@
                   '<span class="field-hint">Sent as a Bearer token. Leave blank for local endpoints that do not need one.</span>' +
                 '</div>' +
                 '<div class="field">' +
-                  '<label class="field-label" for="openaiModel">Model</label>' +
+                  '<div class="field-label-row">' +
+                    '<label class="field-label" for="openaiModel">Model</label>' +
+                    '<button type="button" class="btn btn-ghost btn-sm model-fetch" data-action="fetch-models" data-provider="openai">' + icon('refresh') + ' Fetch models</button>' +
+                  '</div>' +
                   '<input class="input" id="openaiModel" name="openaiModel" list="openaiModelList" autocomplete="off" spellcheck="false" placeholder="gpt-4o-mini" value="' + e(settings.openaiModel) + '">' +
-                  '<datalist id="openaiModelList">' +
-                    '<option value="gpt-4o-mini"></option>' +
-                    '<option value="gpt-4o"></option>' +
-                    '<option value="gpt-4.1-mini"></option>' +
-                    '<option value="qwen2.5-vl-72b-instruct"></option>' +
-                    '<option value="llama-3.2-11b-vision-instruct"></option>' +
-                  '</datalist>' +
-                  '<span class="field-hint">Use a vision-capable model. Names depend on your provider.</span>' +
+                  '<datalist id="openaiModelList">' + openaiModelOptions + '</datalist>' +
+                  '<span class="field-hint model-status" id="openaiModelStatus" aria-live="polite">' + e(openaiModelStatus) + '</span>' +
                 '</div>' +
               '</div>' +
             '</div>' +
@@ -1937,6 +1964,14 @@
                 '<div><span>Model</span><strong class="mono" data-proxy-model>' + e(proxy.model || 'Set in Pages') + '</strong></div>' +
                 '<div><span>Endpoint</span><strong class="mono" data-proxy-host>' + e(proxy.host || '/api/scan') + '</strong></div>' +
                 '<div><span>Keys in this browser</span><strong>None</strong></div>' +
+              '</div>' +
+              '<div class="field" style="margin-top:14px">' +
+                '<div class="field-label-row">' +
+                  '<span class="field-label">Server models</span>' +
+                  '<button type="button" class="btn btn-ghost btn-sm model-fetch" data-action="fetch-models" data-provider="pages">' + icon('refresh') + ' Fetch models</button>' +
+                '</div>' +
+                '<div class="model-catalog" id="pagesModelCatalog">' + pagesCatalogHtml + '</div>' +
+                '<span class="field-hint model-status" id="pagesModelStatus" aria-live="polite">' + e(pagesModelStatus) + '</span>' +
               '</div>' +
               '<p class="field-hint" style="margin-top:10px">Set <span class="mono">SCAN_PROVIDER</span> plus the matching key in <b>Cloudflare Pages → Settings → Variables and Secrets</b>, then redeploy. <a class="link" href="https://developers.cloudflare.com/pages/functions/bindings/#secrets" target="_blank" rel="noopener">Cloudflare guide ↗</a></p>' +
             '</div>' +
