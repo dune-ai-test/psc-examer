@@ -287,8 +287,7 @@
     examFinishing = true;
     var attempt = A.buildAttempt(exam);
     A.state.activeExam = null;
-    A.state.attempts.unshift(attempt);
-    A.save();
+    A.addAttempt(attempt);
 
     A.go('#/result/' + attempt.id);
     A.toast({
@@ -388,6 +387,26 @@
   function noteBox(kind, iconName, html) {
     return '<div class="inline-note' + (kind ? ' inline-note--' + kind : '') + '">' +
       A.icon(iconName) + '<div>' + html + '</div></div>';
+  }
+
+  function setSyncResult(html) {
+    var out = document.getElementById('syncTestResult');
+    if (out) out.innerHTML = html;
+  }
+
+  function cloudToken() {
+    return A.sync ? A.sync.config().token : '';
+  }
+
+  function syncErrorText(err) {
+    return A.esc(err && err.message ? err.message : 'Cloud sync failed. Try again.');
+  }
+
+  function noteCloudFallback() {
+    if (!A.sync) return;
+    A.state.meta.syncEpochMs = Math.max(Number(A.state.meta.syncEpochMs) || 0, Date.now());
+    A.save();
+    A.sync.schedule();
   }
 
   /* ── Actions ─────────────────────────────────────────── */
@@ -589,13 +608,16 @@
   actions['clear-attempts'] = function () {
     return A.confirm({
       title: 'Clear attempt history?',
-      message: 'All saved results, scores and streaks will be removed. Your question library stays exactly as it is.',
+      message: 'All saved results, scores and streaks will be removed. Your question library stays exactly as it is.' +
+        (cloudToken() ? ' The cloud copy is updated at the next sync.' : ''),
       confirmText: 'Clear history',
       danger: true
     }).then(function (ok) {
       if (!ok) return;
       A.state.attempts = [];
+      A.state.meta.attemptsClearedAt = new Date().toISOString();
       A.save();
+      if (A.sync) A.sync.schedule();
       A.refresh();
       A.toast({ title: 'History cleared', message: 'Your library is unchanged.', kind: 'info' });
     });
@@ -747,20 +769,44 @@
   };
 
   actions['reset-data'] = function () {
+    var token = cloudToken();
     return A.confirm({
       title: 'Reset Padanam?',
-      message: 'This removes every set, attempt and profile detail from this browser, and clears saved Gemini and custom API keys. Export a backup first if you may need any of it.',
+      message: 'This removes every set, attempt and profile detail from this browser, and clears saved Gemini and custom API keys. ' +
+        (token ? 'The cloud copy in Neon is cleared too. ' : '') +
+        'Export a backup first if you may need any of it.',
       confirmText: 'Reset everything',
       danger: true
     }).then(function (ok) {
       if (!ok) return;
+      var previousSetIds = A.state.sets.map(function (set) { return set.id; });
       A.resetAll(false);
       A.state.meta.seeded = true;
       A.state.activeExam = null;
+
+      if (token && A.sync) {
+        A.state.meta.attemptsClearedAt = new Date().toISOString();
+        previousSetIds.forEach(function (id) { A.sync.noteDeletedSet(id); });
+      } else if (A.sync) {
+        A.sync.clearTombstones();
+      }
+
       A.save();
       views.scanClear();
       A.go('#/home');
       A.toast({ title: 'Padanam was reset', message: 'Start fresh with a scan, a manual set or the demo library.', kind: 'info' });
+
+      if (!token) return;
+      return A.sync.resetCloud().then(function () {
+        A.toast({ title: 'Cloud copy cleared', message: 'Neon no longer has the old sets, attempts or profile.', kind: 'success' });
+      }).catch(function (err) {
+        noteCloudFallback();
+        A.toast({
+          title: 'Cloud reset did not finish',
+          message: 'This browser was reset, but Neon may still have the old copy. Use Cloud backup → Sync now to retry. ' + syncErrorText(err),
+          kind: 'error'
+        });
+      });
     });
   };
 
@@ -773,6 +819,62 @@
     var shown = isCustom ? A.ui.showOpenaiKey : A.ui.showKey;
     if (input) input.type = shown ? 'text' : 'password';
     if (btn) btn.setAttribute('aria-label', shown ? 'Hide API key' : 'Show API key');
+  };
+
+  actions['toggle-sync-token'] = function (btn) {
+    A.ui.showSyncToken = !A.ui.showSyncToken;
+    var input = document.getElementById('syncToken');
+    if (input) input.type = A.ui.showSyncToken ? 'text' : 'password';
+    if (btn) btn.setAttribute('aria-label', A.ui.showSyncToken ? 'Hide sync code' : 'Show sync code');
+  };
+
+  actions['sync-now'] = function (btn) {
+    if (!A.sync) return Promise.resolve();
+    if (!cloudToken()) {
+      A.toast({ title: 'Add a sync code', message: 'Save the sync code from Cloud backup first.', kind: 'error' });
+      return Promise.resolve();
+    }
+
+    var original = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner spinner--sm"></span> Syncing…';
+    }
+    setSyncResult(noteBox('', 'refresh', 'Pulling the cloud copy, merging it with this browser and pushing changes…'));
+
+    return A.sync.sync().then(function (result) {
+      var message = 'Cloud has ' + A.plural(result.sets, 'set') + ' and ' + A.plural(result.attempts, 'attempt') + '.';
+      A.refresh();
+      setSyncResult(noteBox('success', 'check-circle', 'Synced. ' + message));
+      A.toast({ title: 'Sync complete', message: message, kind: 'success' });
+    }).catch(function (err) {
+      setSyncResult(noteBox('danger', 'alert', syncErrorText(err)));
+      A.toast({
+        title: 'Sync failed',
+        message: err && err.message ? err.message : 'Cloud sync failed. Try again.',
+        kind: 'error'
+      });
+    }).then(function () {
+      if (btn && btn.isConnected) {
+        btn.disabled = false;
+        btn.innerHTML = original;
+      }
+    });
+  };
+
+  actions['sync-forget'] = function () {
+    if (!A.sync) return;
+    return A.confirm({
+      title: 'Forget the sync code?',
+      message: 'Cloud backup turns off in this browser. Your local library and the cloud copy are both kept; enter the code again to reconnect.',
+      confirmText: 'Forget code',
+      danger: false
+    }).then(function (ok) {
+      if (!ok) return;
+      A.sync.saveConfig({ token: '', auto: false });
+      A.refresh();
+      A.toast({ title: 'Sync code removed', message: 'Cloud backup is off in this browser.', kind: 'info' });
+    });
   };
 
   actions['test-key'] = function (btn) {
@@ -1043,6 +1145,7 @@
 
     set.updatedAt = new Date().toISOString();
     A.save();
+    if (A.sync) A.sync.schedule();
     A.closeModal();
     A.refresh();
     A.toast({
@@ -1064,7 +1167,9 @@
     A.state.profile.examDate = examDate;
     A.state.profile.dailyGoal = goal;
     A.state.profile.language = language;
+    A.state.meta.profileUpdatedAt = new Date().toISOString();
     A.save();
+    if (A.sync) A.sync.schedule();
     A.refresh();
     A.toast({
       title: 'Profile saved',
@@ -1136,6 +1241,71 @@
       title: 'Settings saved',
       message: message,
       kind: kind
+    });
+  }
+
+  function saveSyncForm(form) {
+    if (!A.sync) {
+      setSyncResult(noteBox('danger', 'alert', 'The cloud sync module did not load. Reload the page and try again.'));
+      return Promise.resolve();
+    }
+
+    var token = trim(field(form, 'token'));
+    var auto = !!(form.elements.auto && form.elements.auto.checked);
+    var button = form.querySelector('button[type="submit"]');
+    var original = button ? button.innerHTML : '';
+
+    if (!token) {
+      A.sync.saveConfig({ token: '', auto: auto });
+      A.refresh();
+      A.toast({ title: 'Sync code removed', message: 'Cloud backup is off in this browser. Your local library is unchanged.', kind: 'info' });
+      return Promise.resolve();
+    }
+
+    if (token.length < 16) {
+      setSyncResult(noteBox('danger', 'alert', 'The sync code must be at least 16 characters and must match the <span class="mono">SYNC_TOKEN</span> secret.'));
+      return Promise.resolve();
+    }
+
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = '<span class="spinner spinner--sm"></span> Checking…';
+    }
+    setSyncResult(noteBox('', 'cloud', 'Contacting this site’s <b>/api/sync</b> function and Neon. The connection string stays on the server…'));
+
+    return A.sync.test(token).then(function (result) {
+      A.sync.saveConfig({ token: token, auto: auto });
+      A.refresh();
+      setSyncResult(noteBox('success', 'check-circle',
+        'Connected to <b>' + A.esc(result.host || 'Neon') + '</b>. ' +
+        (auto ? 'Automatic sync is on.' : 'Use Sync now whenever you want to update the cloud copy.')));
+
+      A.toast({
+        title: 'Cloud backup connected',
+        message: auto ? 'Padanam will sync automatically from now on.' : 'Press Sync now whenever you want to update the cloud copy.',
+        kind: 'success'
+      });
+
+      if (!auto) return null;
+      return A.sync.sync().then(function (synced) {
+        A.refresh();
+        setSyncResult(noteBox('success', 'check-circle',
+          'Connected. Cloud has <b>' + A.plural(synced.sets, 'set') + '</b> and <b>' + A.plural(synced.attempts, 'attempt') + '</b>.'));
+      }).catch(function (err) {
+        setSyncResult(noteBox('danger', 'alert', 'Connected, but the first sync did not finish: ' + syncErrorText(err)));
+      });
+    }).catch(function (err) {
+      setSyncResult(noteBox('danger', 'alert', syncErrorText(err)));
+      A.toast({
+        title: 'Could not connect',
+        message: err && err.message ? err.message : 'Check the sync code and the Pages secrets.',
+        kind: 'error'
+      });
+    }).then(function () {
+      if (button && button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = original;
+      }
     });
   }
 
@@ -1245,11 +1415,37 @@
       }).then(function (ok) {
         if (!ok) return;
 
+        var token = cloudToken();
+        var previousSetIds = A.state.sets.map(function (set) { return set.id; });
+        var previousAttemptIds = A.state.attempts.map(function (attempt) { return attempt.id; });
+
         normalized.settings.apiKey = A.state.settings.apiKey;
         normalized.settings.openaiKey = A.state.settings.openaiKey;
         normalized.activeExam = null;
         normalized.meta.seeded = true;
+        normalized.meta.attemptsClearedAt = '';
+        normalized.meta.profileUpdatedAt = new Date().toISOString();
+        normalized.meta.syncEpochMs = Number(A.state.meta.syncEpochMs) || 0;
+        normalized.meta.lastSyncAt = A.state.meta.lastSyncAt || '';
         A.state = normalized;
+
+        if (A.sync) {
+          if (token) {
+            var importedSets = {};
+            var importedAttempts = {};
+            normalized.sets.forEach(function (set) { importedSets[set.id] = true; });
+            normalized.attempts.forEach(function (attempt) { importedAttempts[attempt.id] = true; });
+            previousSetIds.forEach(function (id) {
+              if (!importedSets[id]) A.sync.noteDeletedSet(id);
+            });
+            previousAttemptIds.forEach(function (id) {
+              if (!importedAttempts[id] && A.sync.noteDeletedAttempt) A.sync.noteDeletedAttempt(id);
+            });
+          } else {
+            A.sync.clearTombstones();
+          }
+        }
+
         A.save();
 
         A.ui.library.q = '';
@@ -1264,6 +1460,18 @@
           title: 'Backup imported',
           message: A.plural(setCount, 'set') + ' and ' + A.plural(attemptCount, 'attempt') + ' restored.',
           kind: 'success'
+        });
+
+        if (!token) return;
+        return A.sync.replaceCloud().then(function () {
+          A.toast({ title: 'Cloud copy replaced', message: 'Neon now matches the imported backup.', kind: 'success' });
+        }).catch(function (err) {
+          noteCloudFallback();
+          A.toast({
+            title: 'Cloud copy not replaced',
+            message: 'The backup is in this browser, but Neon could not be updated. Use Cloud backup → Sync now to retry. ' + syncErrorText(err),
+            kind: 'error'
+          });
         });
       });
     });
@@ -1304,6 +1512,7 @@
     else if (kind === 'question') handler = saveQuestionForm;
     else if (kind === 'profile') handler = saveProfileForm;
     else if (kind === 'settings') handler = saveSettingsForm;
+    else if (kind === 'sync') handler = saveSyncForm;
     else if (kind === 'start-exam') handler = startExam;
     if (!handler) return;
 
@@ -1459,6 +1668,8 @@
 
     render({ routeChange: true });
     clock = window.setInterval(updateClock, 1000);
+
+    if (A.sync && typeof A.sync.start === 'function') A.sync.start();
 
     if ('serviceWorker' in navigator && /^https?:$/.test(window.location.protocol)) {
       window.addEventListener('load', function () {

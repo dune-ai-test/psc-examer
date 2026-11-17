@@ -41,8 +41,10 @@ static Pages site are **not** visible to `web/` JavaScript, so the function in
 4. Deploy once.
 5. Open the Pages project → **Settings → Variables and Secrets** and add the
    variables for the provider you want. Mark the key as **Encrypt**.
-6. Redeploy the project so the function receives the new values.
-7. Open the deployed app → **Settings → Provider → Cloudflare Pages** → **Test
+6. Add the cloud backup secrets too if you want sync (optional). See
+   [Cloud backup with Neon](#cloud-backup-with-neon).
+7. Redeploy the project so the functions receive the new values.
+8. Open the deployed app → **Settings → Provider → Cloudflare Pages** → **Test
    connection** → **Save settings**.
 
 ### Gemini through Pages
@@ -82,6 +84,56 @@ For local function development, create a `.dev.vars` file at the repository root
 npx wrangler pages dev web
 ```
 
+## Cloud backup with Neon
+
+Cloud backup is optional. It stores sets, questions, attempts and the profile in
+your own [Neon](https://neon.tech) Postgres database, so several browsers can
+share one library. Scan photos, AI keys and the sync code itself are never
+uploaded.
+
+1. Create a Neon project and copy a **pooled** connection string from the Neon
+   dashboard. It looks like
+   `postgresql://user:password@ep-xxx-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require`.
+2. In **Cloudflare Pages → Settings → Variables and Secrets**, add:
+
+   | Name | Value | Secret? |
+   | --- | --- | --- |
+   | `NEON_CONNECTION_STRING` | the pooled connection string | **yes** |
+   | `SYNC_TOKEN` | a sync code of at least 16 characters | **yes** |
+   | `NEON_HTTP_ENDPOINT` | optional full `https://…/sql` URL | no |
+
+   Mark the connection string and the sync code as **Encrypt**.
+3. Redeploy. Open **Settings → Cloud backup**, enter the same sync code and
+   press **Save sync code**. The app tests the function, creates the tables and
+   can sync immediately.
+4. Enter the same code in another browser to share the library. A different code
+   points the browser at a different dataset.
+
+The sync Function at `/api/sync` reads the connection string on the server and
+uses the Neon database host from it to call the HTTP SQL endpoint
+(`https://<neon-host>/sql`). Set `NEON_HTTP_ENDPOINT` only if your Neon project
+needs an explicit endpoint. Tables are created on the first request:
+
+- `padanam_sets` and `padanam_attempts` hold JSON payloads keyed by workspace.
+- `padanam_profile` holds profile, profile timestamp, attempts-cleared timestamp
+  and the sync epoch.
+- `padanam_tombstones` records set and attempt deletions.
+
+The workspace is derived from `SYNC_TOKEN`, so the code is both the password and
+the dataset identity. Use a long random value and treat it like a password.
+Normal sync pulls, merges by id and timestamp, then pushes upserts. Deleting a
+set writes a tombstone, clearing attempts writes `attemptsClearedAt`, and
+importing a backup or resetting the app replaces/resets the cloud copy
+authoritatively. Changing `SYNC_TOKEN` starts a separate workspace instead of
+renaming the old one.
+
+`NEON_CONNECTION_STRING` and `SYNC_TOKEN` stay in Pages secrets. The browser
+stores the sync code in `localStorage` under `padanam.sync.v1`; after **Forget
+code** it keeps only a non-secret fingerprint, so reconnecting the same code
+still has the pending deletions. Backups include neither the code nor the
+fingerprint. The service worker bypasses `/api/*`, so sync always reaches the
+network.
+
 ## What it does
 
 - **Library** — demo sets are seeded on first run; scan papers or create sets
@@ -96,11 +148,16 @@ npx wrangler pages dev web
   reviewable even if the set later changes.
 - **Progress** — score trend, streaks, subject accuracy and attempt history,
   all calculated from locally saved attempts.
+- **Cloud backup** — optional Neon sync for sets, questions, attempts and
+  profile. Off by default; connect it in **Settings → Cloud backup** with the
+  sync code you set in Cloudflare Pages.
 - **Data** — profile, settings, sets and attempts live in `localStorage` under
-  `padanam.web.v1`. JSON export/import moves everything except API keys.
+  `padanam.web.v1`. JSON export/import moves everything except API keys and the
+  sync code.
 - **Offline** — served over HTTP, a service worker caches the app shell on the
   first visit. Library, practice, mock tests and review keep working without a
-  connection; only new AI scans need the network. `file://` skips the worker.
+  connection; only new AI scans and cloud sync need the network. `file://` skips
+  the worker.
 
 ## Scanning providers
 
@@ -150,11 +207,13 @@ css/account.css          progress, profile, settings and editors
 js/data.js               demo sets, subjects and sample extraction
 js/core.js               state, persistence, scoring and overlays
 js/gemini.js             image compression, Gemini, OpenAI-compatible and proxy clients
+js/sync.js               optional Neon sync, merge, tombstones and auto-sync
 js/views.js              all page markup and scan/exam UI
 js/app.js                router, actions, forms, clock and startup
 assets/                  logo, favicon and self-hosted OFL fonts
 _routes.json             limits Pages Functions to /api/* requests
 ../functions/api/scan.js Cloudflare Pages Function; reads keys from Pages secrets
+../functions/api/sync.js Cloudflare Pages Function; Neon sync, connection string stays server-side
 ```
 
 If you change app files after deploying, bump `CACHE` in `sw.js` so returning
@@ -162,9 +221,13 @@ visitors receive the new shell instead of the cached one.
 
 ## Privacy
 
-Padanam has no account server and no cloud sync. Scan photos leave the browser
-only when you press **Extract questions**, and they go to Google Gemini, the
-custom endpoint, or the Cloudflare Pages Function selected in Settings. With the
-Pages proxy, Cloudflare forwards them to the configured provider and keeps the
-API key server-side. Photos are never added to the library. Everything else
-stays in this browser until you export or clear it.
+Padanam has no account server. Scan photos leave the browser only when you press
+**Extract questions**, and they go to Google Gemini, the custom endpoint, or the
+Cloudflare Pages Function selected in Settings. With the Pages proxy, Cloudflare
+forwards them to the configured provider and keeps the API key server-side.
+Photos are never added to the library.
+
+Everything else stays in this browser unless you turn on **Cloud backup**. With
+sync on, sets, questions, attempts and profile are sent to the Neon database
+configured in your Pages secrets. Photos, AI keys, device settings and the sync
+code are never uploaded, and exports/backups exclude keys and the sync code.

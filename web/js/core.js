@@ -178,7 +178,15 @@
       sets: [],
       attempts: [],
       activeExam: null,
-      meta: { seeded: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+      meta: {
+        seeded: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        profileUpdatedAt: new Date().toISOString(),
+        attemptsClearedAt: '',
+        syncEpochMs: 0,
+        lastSyncAt: ''
+      }
     };
   }
 
@@ -333,6 +341,14 @@
       out.meta.seeded = !!state.meta.seeded;
       out.meta.createdAt = state.meta.createdAt || base.meta.createdAt;
       out.meta.updatedAt = state.meta.updatedAt || base.meta.updatedAt;
+      out.meta.profileUpdatedAt = Date.parse(state.meta.profileUpdatedAt)
+        ? state.meta.profileUpdatedAt
+        : out.meta.updatedAt;
+      out.meta.attemptsClearedAt = Date.parse(state.meta.attemptsClearedAt)
+        ? state.meta.attemptsClearedAt
+        : '';
+      out.meta.syncEpochMs = Math.max(0, Number(state.meta.syncEpochMs) || 0);
+      out.meta.lastSyncAt = Date.parse(state.meta.lastSyncAt) ? state.meta.lastSyncAt : '';
     }
     out.version = A.VERSION;
     return out;
@@ -392,22 +408,38 @@
     A.save();
   };
 
+  function scheduleSync() {
+    if (A.sync && typeof A.sync.schedule === 'function') A.sync.schedule();
+  }
+
+  function noteRestoredSet(id) {
+    if (A.sync && typeof A.sync.noteRestoredSet === 'function') A.sync.noteRestoredSet(id);
+  }
+
+  function noteDeletedSet(id) {
+    if (A.sync && typeof A.sync.noteDeletedSet === 'function') A.sync.noteDeletedSet(id);
+  }
+
   A.restoreDemos = function (markSeeded) {
     var now = Date.now();
+    var restored = [];
     (Seed.demoSets || []).forEach(function (demo, index) {
       var exists = A.state.sets.some(function (s) { return s.id === demo.id; });
       if (exists) return;
       var copy = A.clone(demo);
       copy.createdAt = new Date(now - (index + 2) * 86400000).toISOString();
-      copy.updatedAt = new Date(now - index * 86400000).toISOString();
+      copy.updatedAt = new Date(now).toISOString();
       copy.questions = copy.questions.map(function (q) {
         if (!q.id) q.id = A.uid('q');
         return q;
       });
       A.state.sets.push(copy);
+      restored.push(demo.id);
     });
     if (markSeeded) A.state.meta.seeded = true;
     A.save();
+    restored.forEach(noteRestoredSet);
+    scheduleSync();
   };
 
   A.getSet = function (id) {
@@ -421,7 +453,9 @@
   A.deleteSet = function (id) {
     A.state.sets = A.state.sets.filter(function (s) { return s.id !== id; });
     if (A.state.activeExam && A.state.activeExam.setId === id) A.state.activeExam = null;
+    noteDeletedSet(id);
     A.save();
+    scheduleSync();
   };
 
   A.deleteQuestion = function (setId, qid) {
@@ -430,6 +464,7 @@
     set.questions = set.questions.filter(function (q) { return q.id !== qid; });
     set.updatedAt = new Date().toISOString();
     A.save();
+    scheduleSync();
   };
 
   A.updateSet = function (setId, patch) {
@@ -440,12 +475,14 @@
     });
     set.updatedAt = new Date().toISOString();
     A.save();
+    scheduleSync();
     return set;
   };
 
   A.addSet = function (set) {
     A.state.sets.unshift(set);
     A.save();
+    scheduleSync();
     return set;
   };
 
@@ -705,6 +742,7 @@
   A.addAttempt = function (attempt) {
     A.state.attempts.unshift(attempt);
     A.save();
+    scheduleSync();
   };
 
   /* ── Toast, modal, confirm ───────────────────────────── */

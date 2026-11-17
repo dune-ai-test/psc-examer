@@ -207,6 +207,11 @@
 .provider-panel { margin-top: 16px; }
 .provider-panel[hidden] { display: none; }
 
+.sync-auto { margin-top: 14px; }
+.sync-auto span { display: flex; flex-direction: column; gap: 2px; }
+.sync-auto strong { font-size: 11.5px; color: var(--navy); }
+.sync-auto small { font-size: 10px; color: var(--muted); line-height: 1.45; }
+
 @media (max-width: 640px) {
   .provider-grid { grid-template-columns: 1fr; }
 }

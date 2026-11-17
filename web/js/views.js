@@ -15,6 +15,7 @@
   ui.reviewFilter = ui.reviewFilter || 'all';
   ui.showKey = false;
   ui.showOpenaiKey = false;
+  ui.showSyncToken = false;
 
   var scan = {
     images: [],
@@ -1736,7 +1737,7 @@
         '<aside class="profile-aside">' +
           '<section class="card storage-card">' +
             '<h3>Your data</h3>' +
-            '<p>Everything lives in this browser’s local storage. Clearing site data removes it, so export a backup before you clean up.</p>' +
+            '<p>Everything lives in this browser’s local storage unless you turn on Cloud backup. Clearing site data removes the local copy, so export a backup or sync before you clean up.</p>' +
             '<div class="storage-meter"><span style="width:' + pct + '%"></span></div>' +
             '<div class="storage-meta"><span>' + A.fmtBytes(bytes) + ' used</span><span>of ~5 MB</span></div>' +
             '<div class="data-actions">' +
@@ -1747,8 +1748,8 @@
           '</section>' +
           '<section class="card storage-card">' +
             '<h3>' + icon('lock') + ' Local-first</h3>' +
-            '<p>Padanam has no account server. Your library, attempts and profile never leave this browser — except scan photos, which go to your chosen AI provider only when you press extract.</p>' +
-            '<a class="link" style="display:inline-block;margin-top:8px;font-size:10.5px" href="#/settings">Review scanning settings →</a>' +
+            '<p>Padanam is local-first. Without Cloud backup, your library, attempts and profile stay in this browser. Scan photos go to your chosen AI provider only when you press extract.</p>' +
+            '<a class="link" style="display:inline-block;margin-top:8px;font-size:10.5px" href="#/settings">Review privacy and sync settings →</a>' +
           '</section>' +
           '<section class="card storage-card">' +
             '<h3>' + icon('target') + ' Today</h3>' +
@@ -1765,6 +1766,43 @@
     var provider = A.gemini.provider(settings);
     var bytes = A.storageBytes();
     var library = A.libraryStats();
+    var syncInfo = A.sync ? A.sync.info() : null;
+    var syncConfig = A.sync ? A.sync.config() : { token: '', auto: false };
+    var syncReady = !!(syncInfo && syncInfo.checked && syncInfo.available && syncInfo.configured);
+    var syncConnected = !!(syncReady && syncConfig.token);
+    var syncChip = !syncInfo
+      ? 'Off'
+      : syncInfo.syncing
+        ? 'Syncing'
+        : syncConnected
+          ? 'On'
+          : syncReady
+            ? 'Ready'
+            : syncInfo.checked && !syncInfo.available
+              ? 'Off'
+              : 'Check';
+    var syncStatus;
+    if (!syncInfo) {
+      syncStatus = 'The cloud sync module did not load. Reload the page and try again.';
+    } else if (syncInfo.syncing) {
+      syncStatus = 'Syncing with Neon…';
+    } else if (!syncInfo.checked) {
+      syncStatus = 'Checking the sync function on this site…';
+    } else if (!syncInfo.available) {
+      syncStatus = syncInfo.error || 'Cloud sync is not available on this site.';
+    } else if (!syncInfo.configured) {
+      syncStatus = syncInfo.error || 'The sync function is online, but the Neon secrets are missing in Cloudflare Pages.';
+    } else if (!syncConfig.token) {
+      syncStatus = 'Ready on ' + (syncInfo.host || 'Neon') + '. Enter the sync code you set in Cloudflare Pages.';
+    } else {
+      syncStatus = 'Connected to ' + (syncInfo.host || 'Neon') + '.';
+      if (syncInfo.lastSyncAt) syncStatus += ' Last synced ' + A.fmtRelative(syncInfo.lastSyncAt) + '.';
+      if (syncInfo.lastResult) {
+        syncStatus += ' Cloud has ' + A.plural(syncInfo.lastResult.sets, 'set') +
+          ' and ' + A.plural(syncInfo.lastResult.attempts, 'attempt') + '.';
+      }
+    }
+
     var models = A.gemini.MODELS.slice();
     if (!models.some(function (m) { return m.id === settings.model; })) {
       models.unshift({ id: settings.model, label: settings.model, note: 'Saved model' });
@@ -1803,7 +1841,7 @@
     }
 
     return pageHead('Settings', 'Keys, data and privacy',
-      'Configure AI scanning and manage the copy of Padanam that lives in this browser.',
+      'Configure AI scanning, optional cloud backup and the copy of Padanam that lives in this browser.',
       '<a class="btn btn-ghost" href="#/profile">' + icon('user') + ' Profile</a>') +
 
       '<div class="settings-grid">' +
@@ -1895,10 +1933,41 @@
             '</div>' +
           '</form>' +
 
+          '<section class="card settings-card" id="cloudBackup">' +
+            '<div class="settings-card-head">' +
+              '<span class="settings-icon">' + icon('cloud') + '</span>' +
+              '<div><h2>Cloud backup</h2><p>Keep sets, questions, attempts and profile in step across browsers with your own Neon database.</p></div>' +
+              '<span class="chip ' + (syncConnected ? 'chip--success' : 'chip--amber') + '">' + e(syncChip) + '</span>' +
+            '</div>' +
+            '<form data-form="sync" id="syncForm">' +
+              '<div class="field">' +
+                '<label class="field-label" for="syncToken">Sync code</label>' +
+                '<div class="key-field">' +
+                  '<input class="input" id="syncToken" name="token" type="' + (ui.showSyncToken ? 'text' : 'password') + '" autocomplete="off" spellcheck="false" placeholder="The SYNC_TOKEN you set in Cloudflare Pages" value="' + e(syncConfig.token) + '">' +
+                  '<button type="button" class="key-toggle" data-action="toggle-sync-token" aria-label="' + (ui.showSyncToken ? 'Hide sync code' : 'Show sync code') + '">' + icon('eye') + '</button>' +
+                '</div>' +
+                '<span class="field-hint">At least 16 characters, exactly matching the <span class="mono">SYNC_TOKEN</span> secret. The same code on another browser opens the same cloud library; a different code opens a different one.</span>' +
+              '</div>' +
+              '<label class="check-row sync-auto" for="syncAuto">' +
+                '<input type="checkbox" id="syncAuto" name="auto"' + (syncConfig.auto ? ' checked' : '') + '>' +
+                '<span><strong>Automatic sync</strong><small>Push changes a few seconds after you edit, and pull once when Padanam opens.</small></span>' +
+              '</label>' +
+              '<div class="form-actions" style="margin-top:14px">' +
+                '<button type="submit" class="btn btn-primary">' + icon('check') + ' Save sync code</button>' +
+                '<button type="button" class="btn btn-ghost" data-action="sync-now">' + icon('refresh') + ' Sync now</button>' +
+                (syncConfig.token ? '<button type="button" class="btn btn-ghost btn-sm" data-action="sync-forget">' + icon('close') + ' Forget code</button>' : '') +
+              '</div>' +
+              '<div class="test-result" id="syncTestResult"></div>' +
+            '</form>' +
+            '<div class="settings-note">' + icon('lock') +
+              '<span>' + e(syncStatus) + ' Only sets, questions, attempts and profile are stored in Neon. Photos, scan images, AI keys and this sync code are never uploaded; backups do not include the code either.</span>' +
+            '</div>' +
+          '</section>' +
+
           '<section class="card settings-card">' +
             '<div class="settings-card-head">' +
               '<span class="settings-icon settings-icon--success">' + icon('database') + '</span>' +
-              '<div><h2>Your data</h2><p>A single backup file can move your library, sets and attempts to another browser.</p></div>' +
+              '<div><h2>Your data</h2><p>Download a backup file, or keep browsers in step with Cloud backup above. Neon never receives photos or API keys.</p></div>' +
             '</div>' +
             '<div class="about-list">' +
               '<div><span>Sets in library</span><strong>' + library.sets + '</strong></div>' +
@@ -1922,6 +1991,7 @@
             '<div class="about-list">' +
               '<div><span>Version</span><strong class="mono">1.0.0 · web</strong></div>' +
               '<div><span>Storage</span><strong>localStorage</strong></div>' +
+              '<div><span>Cloud sync</span><strong>Optional · Neon</strong></div>' +
               '<div><span>Questions</span><strong>English + Malayalam</strong></div>' +
               '<div><span>Scanning</span><strong>Gemini, custom API or Cloudflare proxy</strong></div>' +
               '<div><span>Accounts</span><strong>None</strong></div>' +
@@ -1937,7 +2007,7 @@
           '</section>' +
           '<section class="card note-card">' +
             '<h3>' + icon('lock') + ' What leaves this browser</h3>' +
-            '<p>Only the photos you choose to scan — compressed and sent to the provider you configured when you press extract. There is no Padanam account or cloud sync. Backups are files you download yourself.</p>' +
+            '<p>Scan photos go only to the provider you configured, and only when you press extract. With Cloud backup on, sets, questions, attempts and profile go to your own Neon database. Photos, AI keys and the sync code are never uploaded, and there is no Padanam account.</p>' +
           '</section>' +
           '<section class="card note-card">' +
             '<h3>' + icon('alert') + ' Before resetting</h3>' +
