@@ -52,14 +52,15 @@ object Routes {
     const val ANALYSING = "analysing"
     const val QUIZ = "quiz"
     const val SET = "set/{setId}"
-    const val SCAN_RESULT = "scanresult/{setId}"
+    const val SCAN_RESULT = "scanresult/{setId}?appended={appended}&added={added}"
     const val EXAM_SETUP = "examsetup/{setId}?mode={mode}"
     const val RESULTS = "results/{attemptId}"
     const val REVIEW = "review/{attemptId}"
 
     fun set(setId: String) = "set/$setId"
     fun scan(gallery: Boolean = false) = "$SCAN?gallery=$gallery"
-    fun scanResult(setId: String) = "scanresult/$setId"
+    fun scanResult(setId: String, appended: Boolean = false, added: Int = 0) =
+        "scanresult/$setId?appended=$appended&added=$added"
     fun examSetup(setId: String, mode: String) = "examsetup/$setId?mode=$mode"
     fun results(attemptId: String) = "results/$attemptId"
     fun review(attemptId: String) = "review/$attemptId"
@@ -304,8 +305,8 @@ private fun SignedInRoot(
             composable(Routes.ANALYSING) {
                 AnalysingScreen(
                     container = container,
-                    onSaved = { setId ->
-                        navController.navigate(Routes.scanResult(setId)) {
+                    onSaved = { setId, appended, added ->
+                        navController.navigate(Routes.scanResult(setId, appended, added)) {
                             // HOME is a plain route, so popUpTo always resolves; the camera
                             // and analysing screens are removed from the back stack.
                             popUpTo(Routes.HOME) { inclusive = false }
@@ -318,12 +319,24 @@ private fun SignedInRoot(
 
             composable(
                 route = Routes.SCAN_RESULT,
-                arguments = listOf(navArgument("setId") { type = NavType.StringType })
+                arguments = listOf(
+                    navArgument("setId") { type = NavType.StringType },
+                    navArgument("appended") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    },
+                    navArgument("added") {
+                        type = NavType.IntType
+                        defaultValue = 0
+                    }
+                )
             ) { entry ->
                 val setId = entry.arguments?.getString("setId").orEmpty()
                 ScanResultScreen(
                     appVm = appVm,
                     setId = setId,
+                    appended = entry.arguments?.getBoolean("appended") == true,
+                    added = entry.arguments?.getInt("added") ?: 0,
                     onClose = { navController.popBackStack() },
                     onViewSet = { navController.navigate(Routes.set(setId)) },
                     onPractice = { navController.navigate(Routes.examSetup(setId, QuizMode.PRACTICE)) },

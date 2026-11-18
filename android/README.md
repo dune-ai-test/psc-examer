@@ -13,8 +13,8 @@ functions (`/api/auth`, `/api/admin`, `/api/sync`, `/api/scan`).
 
 - **Sign in once** — the same admin-created username and password work on the
   web and on Android. The admin can also open a console inside the app.
-- **Scan or import questions** — administrators capture up to 8 pages per set;
-  the deployed scanning service returns bilingual questions with four options.
+- **Scan or import questions** — administrators capture up to 8 pages, review the
+  bilingual draft, then save it as a new set or append it to an existing topic.
 - **Bilingual quiz** — every question carries English and Malayalam text. The
   language switch changes question content only.
 - **Practice and mock exams** — choose question count and duration, resume an
@@ -33,7 +33,7 @@ functions (`/api/auth`, `/api/admin`, `/api/sync`, `/api/scan`).
 
 | Role | Can do |
 | --- | --- |
-| Administrator | Scan/import sets, rename sets, export JSON, sync the admin library, create learners, assign sets |
+| Administrator | Scan/import sets, append questions, rename sets, export JSON, sync the admin library, create learners, reset learner passwords, assign sets |
 | Learner | Practise, take mock exams, review attempts, edit their profile; scanning and library edits are hidden |
 
 The administrator is bootstrapped from `ADMIN_USERNAME` / `ADMIN_PASSWORD` on
@@ -49,14 +49,14 @@ the server. Learner accounts are created in the admin console.
 | Progress | Score trend, accuracy, streak, recent attempts |
 | Profile | Editable name, goal, language, history, admin entry, settings |
 | Scan camera | Live CameraX preview, flash, lens flip, SINGLE / MULTI / BATCH |
-| Analysing | File card, percentage, stage checklist, retry/settings/cancel |
+| Analysing / review | File card, percentage, stage checklist, draft preview, new-set or append destination picker |
 | Scan result | Saved banner, confidence chips, correct options, actions |
 | Exam setup | Practice/mock segmented control, count and duration chips |
 | Question | Custom timer/counter, palette, flags, leave and submit dialogs |
 | Results | Pass/fail hero, breakdown, stat tiles, share and review |
 | Set detail | Hero, stats, language switch, question previews, attempts |
 | Answer review | Filters, stored answer cards, correct/selected visuals |
-| Admin console | Learners, create account, sync admin library, assign sets |
+| Admin console | Learners, create account, sync admin library, reset learner password, assign sets |
 | Settings | Account, site address, cloud sync, sign out |
 
 ## Tech stack
@@ -122,10 +122,14 @@ No `local.properties` secrets are needed. The app builds with no keys at all.
 4. **Validate** — questions without both a stem and four options are dropped,
    letters are normalised to A–D, blank Malayalam falls back to English, and
    confidence is clamped. An empty result becomes a friendly retry message.
-5. **Save** — `LibraryRepository.saveScan` writes the set and every question to
-   Room before the success screen appears. Titles get a `(2)`, `(3)` suffix if
-   they collide.
-6. **Sync** — when auto-sync is on, the new set is pushed to the signed-in
+5. **Review** — extraction stops at a draft. Nothing is written yet; the review
+   card previews the first questions and lists every existing set as an append
+   destination alongside **Create a new set**.
+6. **Save** — `LibraryRepository.saveScan` writes a new set, or `appendScan`
+   updates the chosen set in place. Appending keeps its title, subject and
+   previous questions, gives the new questions fresh IDs and bumps `updatedAt`.
+   New titles get a `(2)`, `(3)` suffix if they collide.
+7. **Sync** — when auto-sync is on, the saved set is pushed to the signed-in
    workspace. The admin can then assign it to a learner from the admin console.
 
 ## Offline and sync behaviour
@@ -225,9 +229,12 @@ android/
 
 - [ ] Sign in as admin with the deployed site address.
 - [ ] Open the admin console, create a learner and assign a synced set.
+- [ ] Reset that learner's password and sign in with the new one.
 - [ ] Sign out; the local library is cleared.
 - [ ] Sign in as the learner and confirm only assigned sets appear.
 - [ ] Scan one clear page as admin; verify both languages and the correct option.
+- [ ] Scan again, choose an existing set on the review screen, and confirm the
+      questions are appended while its title, subject and old questions remain.
 - [ ] Start a mock exam, background the app for a minute, return and confirm the
       timer kept counting.
 - [ ] Force-stop mid-exam; reopen and resume from the home banner.

@@ -1568,6 +1568,50 @@
     });
   }
 
+  function resetPasswordForm(form) {
+    if (!requireAdmin()) return;
+    var userId = form.getAttribute('data-user-id');
+    if (!userId) return;
+
+    var password = field(form, 'password');
+    if (!password || password.length < 8) {
+      A.toast({
+        title: 'Choose a new password',
+        message: 'Use at least 8 characters.',
+        kind: 'error'
+      });
+      return;
+    }
+
+    var button = form.querySelector('button[type="submit"]');
+    var original = button ? button.innerHTML : '';
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = '<span class="spinner spinner--sm"></span> Updating…';
+    }
+
+    return A.admin.resetPassword(userId, password).then(function (user) {
+      form.reset();
+      A.toast({
+        title: 'Password updated',
+        message: (user && user.username ? '@' + user.username : 'This learner') +
+          ' can sign in with the new password. The current session stays valid until it expires.',
+        kind: 'success'
+      });
+    }).catch(function (err) {
+      A.toast({
+        title: 'Could not reset the password',
+        message: err && err.message ? err.message : 'Try again in a moment.',
+        kind: 'error'
+      });
+    }).then(function () {
+      if (button && button.isConnected) {
+        button.disabled = false;
+        button.innerHTML = original;
+      }
+    });
+  }
+
   function assignSetsForm(form) {
     if (!requireAdmin()) return;
     var userId = form.getAttribute('data-user-id');
@@ -1819,6 +1863,7 @@
     else if (kind === 'sync') handler = saveSyncForm;
     else if (kind === 'login') handler = loginForm;
     else if (kind === 'create-user') handler = createUserForm;
+    else if (kind === 'reset-password') handler = resetPasswordForm;
     else if (kind === 'assign-sets') handler = assignSetsForm;
     else if (kind === 'start-exam') handler = startExam;
     if (!handler) return;

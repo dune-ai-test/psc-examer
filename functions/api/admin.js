@@ -1,8 +1,8 @@
 /* =========================================================
    Padanam — admin console API for Cloudflare Pages
-   Only the bootstrap admin can list accounts, create users
-   and assign libraries. There is deliberately no delete or
-   password-reset endpoint.
+   Only the bootstrap admin can list accounts, create users,
+   reset a learner password and assign libraries. There is
+   deliberately no delete endpoint.
    ========================================================= */
 
 import {
@@ -73,6 +73,9 @@ export async function onRequest(context) {
     if (action === 'create-user') {
       return await createUser(database, guard.user, body, context.env);
     }
+    if (action === 'reset-password') {
+      return await resetPassword(database, guard.user, body);
+    }
     if (action === 'assign-sets') {
       return await assignSets(database, guard.user, body);
     }
@@ -80,7 +83,7 @@ export async function onRequest(context) {
     return json({ error: err && err.message ? err.message : 'The admin action failed.' }, 502);
   }
 
-  return json({ error: 'Unknown action. Use users, create-user or assign-sets.' }, 400);
+  return json({ error: 'Unknown action. Use users, create-user, reset-password or assign-sets.' }, 400);
 }
 
 /* ── Accounts ──────────────────────────────────────────── */
@@ -194,6 +197,45 @@ async function createUser(database, admin, body, env) {
       setIds: []
     }
   }, 201);
+}
+
+/* ── Password reset ────────────────────────────────────── */
+async function resetPassword(database, admin, body) {
+  const userId = String(body.userId || '').trim();
+  const password = String(body.password || '');
+
+  if (!userId) return json({ error: 'Choose an account.' }, 400);
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return json({ error: 'The password must be at least ' + MIN_PASSWORD_LENGTH + ' characters.' }, 400);
+  }
+  if (password.length > MAX_PASSWORD_LENGTH) {
+    return json({ error: 'That password is too long.' }, 400);
+  }
+
+  const userResult = await neonQuery(
+    database,
+    'SELECT id, username, display_name, role, created_ms FROM padanam_users WHERE id = $1',
+    [userId]
+  );
+  const userRow = rows(userResult)[0];
+  if (!userRow) return json({ error: 'That account no longer exists.' }, 404);
+  if (userRow.role === 'admin') {
+    return json({ error: 'The bootstrap administrator is managed by the server secrets.' }, 403);
+  }
+
+  const salt = randomBase64(16);
+  const passwordHash = await hashPassword(password, salt, PBKDF2_ITERATIONS);
+  await neonQuery(
+    database,
+    'UPDATE padanam_users SET password_hash = $1, salt = $2, iterations = $3 WHERE id = $4',
+    [passwordHash, salt, PBKDF2_ITERATIONS, userId]
+  );
+
+  return json({
+    ok: true,
+    user: userFromRow(userRow),
+    note: 'Existing sessions remain valid until they expire.'
+  });
 }
 
 /* ── Library assignment ────────────────────────────────── */

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.RadioButtonChecked
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
@@ -87,7 +88,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun AnalysingScreen(
     container: AppContainer,
-    onSaved: (String) -> Unit,
+    onSaved: (String, Boolean, Int) -> Unit,
     onClose: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -96,21 +97,24 @@ fun AnalysingScreen(
 
     LaunchedEffect(Unit) { vm.start() }
 
-    // Hold the finished state for a beat so 100% is visible before moving on.
+    // Hold the finished state for a beat so the saved banner is visible.
     LaunchedEffect(state.stage, state.setId) {
         if (state.stage == "DONE") {
             val setId = state.setId ?: return@LaunchedEffect
-            delay(700)
-            onSaved(setId)
+            delay(900)
+            onSaved(setId, state.appended, state.questionCount)
         }
     }
 
     val images = state.images
     val primary = images.firstOrNull()
     val isDone = state.stage == "DONE"
+    val isReview = state.stage == "REVIEW"
+    val isSaving = state.stage == "SAVING"
     val isError = state.stage == "ERROR"
 
     fun closeScreen() {
+        if (isSaving) return
         if (!isDone) {
             // Nothing was saved, so the cache copies are no longer needed.
             images.forEach { image -> runCatching { File(image.path).delete() } }
@@ -126,7 +130,11 @@ fun AnalysingScreen(
     ) {
         PadanamStatusBar()
         TopBar(
-            title = "Analysing",
+            title = when {
+                isDone -> "Scan saved"
+                isReview -> "Review scan"
+                else -> "Analysing"
+            },
             leading = {
                 CircleAction(
                     icon = Icons.Rounded.Close,
@@ -173,18 +181,33 @@ fun AnalysingScreen(
                         onOpenSettings = onOpenSettings,
                         onCancel = { closeScreen() }
                     )
+                } else if (isReview) {
+                    ReviewPanel(
+                        state = state,
+                        onSelectTarget = vm::selectTarget,
+                        onSave = vm::saveDraft,
+                        onDiscard = { closeScreen() }
+                    )
                 } else {
                     ProgressBlock(state = state)
 
                     if (isDone) {
-                        SavedBanner(questionCount = state.questionCount)
+                        SavedBanner(
+                            questionCount = state.questionCount,
+                            title = state.savedTitle,
+                            appended = state.appended
+                        )
                     }
 
                     StepList(state = state)
 
                     if (isDone) {
                         Text(
-                            "Saved to your library · opening the result…",
+                            if (state.appended) {
+                                "Added to ${state.savedTitle} · opening the set…"
+                            } else {
+                                "Saved to your library · opening the result…"
+                            },
                             style = AppType.MonoSmall.copy(letterSpacing = 0.2.sp),
                             color = Success,
                             textAlign = TextAlign.Center,
@@ -216,6 +239,8 @@ private fun FileCard(
     val status = when (state.stage) {
         "DONE" -> "SAVED"
         "ERROR" -> "PAUSED"
+        "REVIEW" -> "READY"
+        "SAVING" -> "SAVING"
         else -> "${state.progress}%"
     }
     val statusBackground = when (state.stage) {
@@ -351,7 +376,11 @@ private fun ProgressBlock(state: AnalysingState) {
 }
 
 @Composable
-private fun SavedBanner(questionCount: Int) {
+private fun SavedBanner(
+    questionCount: Int,
+    title: String,
+    appended: Boolean
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -375,17 +404,257 @@ private fun SavedBanner(questionCount: Int) {
                 modifier = Modifier.size(14.dp)
             )
         }
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
             Text(
-                "Saved to your library",
+                if (appended) {
+                    "Added to ${title.ifBlank { "your set" }}"
+                } else {
+                    "Saved to your library"
+                },
                 style = AppType.LabelSmallStrong,
-                color = Success
+                color = Success,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
                 "$questionCount question${if (questionCount == 1) "" else "s"} · English and Malayalam",
                 style = AppType.BodyTiny,
                 color = InkMuted
             )
+        }
+    }
+}
+
+@Composable
+private fun ReviewPanel(
+    state: AnalysingState,
+    onSelectTarget: (String?) -> Unit,
+    onSave: () -> Unit,
+    onDiscard: () -> Unit
+) {
+    val draft = state.draft ?: return
+    val draftTitle = draft.title.trim().ifBlank { "Scanned set" }
+    val draftSubject = draft.subject.trim().ifBlank { "General" }
+    val questionCount = draft.questions.size
+    val target = state.destinations.firstOrNull { it.id == state.targetSetId }
+    val saveError = state.error
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(SurfaceWhite)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(IndigoSoft),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = Indigo,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Draft ready", style = AppType.SectionTitle, color = Navy)
+                Text(
+                    "$questionCount question${if (questionCount == 1) "" else "s"} extracted · nothing saved yet",
+                    style = AppType.BodyTiny,
+                    color = InkMuted
+                )
+            }
+        }
+
+        Text(
+            if (target == null) {
+                "Check the extracted questions, then save them as a new set."
+            } else {
+                "These questions will be added to ${target.title}. Its title, subject and existing questions stay unchanged."
+            },
+            style = AppType.BodySmall,
+            color = InkMuted
+        )
+
+        if (!saveError.isNullOrBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DangerSoft)
+                    .padding(horizontal = 11.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = Danger,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(
+                    saveError,
+                    style = AppType.BodyTiny,
+                    color = Danger
+                )
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            draft.questions.take(3).forEachIndexed { index, question ->
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(IndigoWash),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "${index + 1}",
+                            style = AppType.MonoSmall,
+                            color = Indigo
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            question.questionEn.ifBlank { question.questionMl },
+                            style = AppType.BodySmall,
+                            color = Navy,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            "Answer ${question.correctOption.uppercase().take(1).ifBlank { "—" }} · " +
+                                question.topic.ifBlank { "General" },
+                            style = AppType.MonoMeta,
+                            color = InkMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            if (questionCount > 3) {
+                Text(
+                    "+ ${questionCount - 3} more question${if (questionCount - 3 == 1) "" else "s"}",
+                    style = AppType.BodyTiny,
+                    color = InkMuted
+                )
+            }
+        }
+
+        ThinDivider()
+
+        Text(
+            "SAVE INTO",
+            style = AppType.MonoSmall.copy(letterSpacing = 0.8.sp),
+            color = InkMuted
+        )
+
+        DestinationRow(
+            title = "Create a new set",
+            meta = "$draftTitle · $draftSubject · $questionCount questions",
+            selected = target == null,
+            onClick = { onSelectTarget(null) }
+        )
+
+        if (state.destinations.isNotEmpty()) {
+            Text(
+                "OR APPEND TO AN EXISTING SET",
+                style = AppType.MonoSmall.copy(letterSpacing = 0.8.sp),
+                color = InkMuted
+            )
+            state.destinations.forEach { destination ->
+                DestinationRow(
+                    title = destination.title,
+                    meta = "${destination.subject} · ${destination.questionCount} questions",
+                    selected = target?.id == destination.id,
+                    onClick = { onSelectTarget(destination.id) }
+                )
+            }
+        }
+
+        PrimaryButton(
+            text = if (target == null) "Save as a new set" else "Add to selected set",
+            onClick = onSave,
+            icon = Icons.Rounded.Check,
+            enabled = !state.running
+        )
+
+        LightButton(
+            text = "Discard draft",
+            onClick = onDiscard,
+            icon = Icons.Rounded.Close,
+            tint = InkMuted,
+            container = SurfaceMuted,
+            height = 46.dp
+        )
+    }
+}
+
+@Composable
+private fun DestinationRow(
+    title: String,
+    meta: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (selected) IndigoSoft else SurfaceMuted)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            if (selected) Icons.Rounded.RadioButtonChecked else Icons.Rounded.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = if (selected) Indigo else InkMuted,
+            modifier = Modifier.size(19.dp)
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                title,
+                style = AppType.Label,
+                color = Navy,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                meta,
+                style = AppType.BodyTiny,
+                color = InkMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (selected) {
+            MonoChip(text = "Here", background = SurfaceWhite, color = Indigo)
         }
     }
 }
@@ -399,6 +668,7 @@ private fun StepList(state: AnalysingState) {
         "READING" -> 1
         "MATCHING" -> 2
         "SAVING" -> 3
+        "REVIEW" -> 4
         "DONE" -> 4
         else -> -1
     }

@@ -63,8 +63,9 @@ browser.
 `AUTH_SECRET` signs the stateless session tokens. Changing it signs everyone out.
 `ADMIN_USERNAME` and `ADMIN_PASSWORD` bootstrap the one administrator account;
 the password is checked on the server and is never stored in Neon. There is no
-reset button — to change the admin password, update the Pages secret and
-redeploy. To revoke a learner, remove their row from the `padanam_users` table.
+reset button for the bootstrap admin — to change that password, update the Pages
+secret and redeploy. Learner passwords can be reset from **Admin console →
+Accounts**. To revoke a learner, remove their row from the `padanam_users` table.
 
 ### Gemini through Pages
 
@@ -127,12 +128,13 @@ npx wrangler pages dev web
 | Progress, profile and attempts | yes | own attempts |
 | Scan papers, add/edit sets and questions | yes | no |
 | Export/import a backup, replace the cloud copy | yes | no |
-| Create accounts and assign libraries | yes | no |
+| Create accounts, reset learner passwords and assign libraries | yes | no |
 | Appearance and account settings | yes | yes |
 
-There are deliberately **no delete or reset buttons** anywhere in the app: no
-delete set, delete question, clear attempts, reset data or reset cloud. A backup
-import is the only replace operation, and it is administrator-only.
+There are deliberately **no delete or data-reset buttons** anywhere in the app:
+no delete set, delete question, clear attempts, reset data or reset cloud. A
+learner password reset is the only reset action, and it is administrator-only.
+A backup import is the only replace operation, and it is also administrator-only.
 
 ## Libraries and assignment
 
@@ -141,6 +143,8 @@ lists every learner with the sets they already have. Opening **Assign sets** on
 an account shows the admin library; tick one or more sets and submit. The server
 copies those sets into the learner’s Neon workspace with a fresh timestamp, and
 they appear on the learner’s next sync (signing in triggers one immediately).
+**Reset password** on the same account opens a field for a new password; the
+current learner session stays valid until its seven-day token expires.
 
 Assignment is additive. A learner starts with an empty library and only receives
 what the administrator assigns; demo sets are seeded only in local mode or when
@@ -250,14 +254,14 @@ js/core.js               state, scoped persistence, scoring and overlays
 js/gemini.js             image compression and AI provider clients
 js/sync.js               Neon sync client, merge, tombstones and auto-sync
 js/auth.js               account probe, login/logout and session storage
-js/admin.js              admin API client for accounts and assignment
+js/admin.js              admin API client for accounts, passwords and assignment
 js/views.js              all page markup, including login and admin
 js/app.js                router, auth gates, actions, forms and startup
 assets/                  logo, favicon and self-hosted OFL fonts
 _routes.json             limits Pages Functions to /api/* requests
 ../functions/_shared.js  Neon, schema, sessions, hashing and HTTP helpers
 ../functions/api/auth.js Pages Function; login, session, logout and status
-../functions/api/admin.js Pages Function; create users and assign sets
+../functions/api/admin.js Pages Function; create users, reset passwords, assign sets
 ../functions/api/sync.js Pages Function; account/legacy Neon sync
 ../functions/api/scan.js Pages Function; reads scan keys from Pages secrets
 ```

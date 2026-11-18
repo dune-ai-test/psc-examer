@@ -117,6 +117,14 @@ data class ActiveExam(
     val currentQuestionId: String? get() = questionIds.getOrNull(currentIndex)
 }
 
+/** A set that a scan draft can be appended to. */
+data class ScanDestination(
+    val id: String,
+    val title: String,
+    val subject: String,
+    val questionCount: Int
+)
+
 /** Lightweight joined row used by the library and home screens. */
 data class SetSummary(
     @Embedded val set: com.padanam.psc.data.local.SetEntity,

@@ -161,6 +161,20 @@ class ServerApi(
             ?: throw ServerException("The server did not return the new account.")
     }
 
+    suspend fun resetPassword(
+        baseUrl: String,
+        token: String,
+        userId: String,
+        password: String
+    ) = withContext(Dispatchers.IO) {
+        post(baseUrl, "/api/admin", token, buildJsonObject {
+            put("action", "reset-password")
+            put("userId", userId)
+            put("password", password)
+        })
+        Unit
+    }
+
     suspend fun assignSets(
         baseUrl: String,
         token: String,

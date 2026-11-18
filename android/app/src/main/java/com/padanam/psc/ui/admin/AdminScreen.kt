@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AdminPanelSettings
 import androidx.compose.material.icons.rounded.CloudSync
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -27,6 +28,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -75,6 +77,11 @@ fun AdminScreen(
     var username by rememberSaveable { mutableStateOf("") }
     var displayName by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var newPassword by rememberSaveable { mutableStateOf("") }
+
+    LaunchedEffect(state.message) {
+        if (state.message.startsWith("Password updated")) newPassword = ""
+    }
 
     Column(
         modifier = Modifier
@@ -299,6 +306,63 @@ fun AdminScreen(
                         enabled = !state.busy && state.selectedUserId != null &&
                             state.selectedSetIds.isNotEmpty(),
                         icon = Icons.Rounded.CloudSync
+                    )
+                }
+            }
+
+            item {
+                SectionHeading(title = "Reset learner password")
+            }
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(SurfaceWhite)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.Lock,
+                            null,
+                            tint = Indigo,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text("Set a new password", style = AppType.SectionTitle, color = Navy)
+                    }
+                    Text(
+                        state.selectedUser?.let {
+                            "Set a new password for ${it.label} (@${it.username})."
+                        } ?: "Choose a learner above.",
+                        style = AppType.Label,
+                        color = Navy
+                    )
+                    AppTextField(
+                        label = "New password",
+                        value = newPassword,
+                        onValueChange = { newPassword = it.take(200) },
+                        placeholder = "At least 8 characters",
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+                    Text(
+                        "The learner can sign in with this password immediately. Their current session stays valid until it expires.",
+                        style = AppType.BodyTiny,
+                        color = InkMuted
+                    )
+                    PrimaryButton(
+                        text = if (state.busy) "Working…" else "Reset password",
+                        onClick = {
+                            state.selectedUserId?.let { userId ->
+                                vm.resetPassword(userId, newPassword)
+                            }
+                        },
+                        enabled = !state.busy && state.selectedUserId != null &&
+                            newPassword.length >= 8,
+                        icon = Icons.Rounded.Lock
                     )
                 }
             }

@@ -6,6 +6,7 @@ import com.padanam.psc.data.local.SetEntity
 import com.padanam.psc.data.model.AiOption
 import com.padanam.psc.data.model.AiQuestion
 import com.padanam.psc.data.model.AiScanResult
+import com.padanam.psc.data.model.ScanDestination
 import com.padanam.psc.util.AppJson
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
@@ -16,12 +17,14 @@ import kotlinx.serialization.json.put
 import java.time.Instant
 import java.util.UUID
 
+data class AppendScanResult(val added: Int, val title: String)
+
 class LibraryRepository(private val dao: AppDao) {
 
     /**
-     * Saves a completed AI scan as a self-contained set. The set is stored
-     * immediately, before the result screen appears, so losing network or
-     * backgrounding the app can never lose an extraction.
+     * Saves a reviewed AI extraction as a self-contained set. The set is
+     * written when the admin presses Save, so closing the review loses nothing
+     * that was committed and changing the destination is free.
      */
     suspend fun saveScan(
         result: AiScanResult,
@@ -60,12 +63,50 @@ class LibraryRepository(private val dao: AppDao) {
         return setId
     }
 
+    /**
+     * Appends a reviewed extraction to an existing set. The target keeps its
+     * title, subject and questions; only `updatedAt` moves so the next sync
+     * replaces the cloud copy.
+     */
+    suspend fun appendScan(setId: String, result: AiScanResult): AppendScanResult {
+        val set = dao.getSet(setId) ?: return AppendScanResult(0, "")
+        if (result.questions.isEmpty()) return AppendScanResult(0, set.title)
+
+        val existing = dao.questionsOnce(setId)
+        val startOrder = (existing.maxOfOrNull { it.order } ?: -1) + 1
+        val now = System.currentTimeMillis()
+        val questions = result.questions.mapIndexed { index, question ->
+            question.toEntity(
+                setId = setId,
+                order = startOrder + index,
+                createdAt = now + index,
+                confidenceFallback = 80
+            )
+        }
+
+        dao.appendQuestionsToSet(set.copy(updatedAt = now, synced = false), questions)
+        return AppendScanResult(questions.size, set.title)
+    }
+
+    /** Sets offered as append destinations on the scan review screen. */
+    suspend fun scanDestinations(): List<ScanDestination> =
+        dao.setSummariesOnce().map { summary ->
+            ScanDestination(
+                id = summary.id,
+                title = summary.title,
+                subject = summary.subject,
+                questionCount = summary.questionCount
+            )
+        }
+
+    suspend fun titleOf(setId: String): String = dao.getSet(setId)?.title.orEmpty()
+
     suspend fun renameSet(setId: String, newTitle: String) {
         val set = dao.getSet(setId) ?: return
         val clean = newTitle.trim().take(80)
         if (clean.isBlank() || clean == set.title) return
         // Keep the set newer than the cloud copy so the next sync pushes it.
-        dao.insertSet(
+        dao.updateSet(
             set.copy(
                 title = clean,
                 updatedAt = System.currentTimeMillis(),

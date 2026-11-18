@@ -82,6 +82,8 @@ import kotlinx.coroutines.delay
 fun ScanResultScreen(
     appVm: AppViewModel,
     setId: String,
+    appended: Boolean = false,
+    added: Int = 0,
     onClose: () -> Unit,
     onViewSet: () -> Unit,
     onPractice: () -> Unit,
@@ -144,7 +146,10 @@ fun ScanResultScreen(
                 item {
                     SavedBanner(
                         questionCount = questionCount,
-                        subject = subject
+                        subject = subject,
+                        title = title,
+                        appended = appended,
+                        added = added
                     )
                 }
 
@@ -159,7 +164,7 @@ fun ScanResultScreen(
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
                             Text(
-                                "EXTRACTED QUESTIONS",
+                                if (appended) "QUESTIONS IN THIS SET" else "EXTRACTED QUESTIONS",
                                 style = AppType.Eyebrow.copy(letterSpacing = 0.9.sp),
                                 color = InkMuted
                             )
@@ -171,7 +176,12 @@ fun ScanResultScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                "$questionCount question${if (questionCount == 1) "" else "s"} ready",
+                                if (appended) {
+                                    "${if (added > 0) added else questionCount} new · " +
+                                        "$questionCount question${if (questionCount == 1) "" else "s"} in this set"
+                                } else {
+                                    "$questionCount question${if (questionCount == 1) "" else "s"} ready"
+                                },
                                 style = AppType.BodyTiny,
                                 color = InkMuted
                             )
@@ -265,7 +275,10 @@ fun ScanResultScreen(
 @Composable
 private fun SavedBanner(
     questionCount: Int,
-    subject: String
+    subject: String,
+    title: String,
+    appended: Boolean,
+    added: Int
 ) {
     Row(
         modifier = Modifier
@@ -295,14 +308,18 @@ private fun SavedBanner(
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Text(
-                "Saved to your library",
+                if (appended) "Added to $title" else "Saved to your library",
                 style = AppType.LabelSmallStrong,
                 color = IndigoText,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                "$questionCount QUESTION${if (questionCount == 1) "" else "S"} · 4 OPTIONS · ${subject.uppercase()}",
+                if (appended) {
+                    "${if (added > 0) added else questionCount} NEW · $questionCount TOTAL · ${subject.uppercase()}"
+                } else {
+                    "$questionCount QUESTION${if (questionCount == 1) "" else "S"} · 4 OPTIONS · ${subject.uppercase()}"
+                },
                 style = AppType.MonoSmall.copy(letterSpacing = 0.2.sp),
                 color = IndigoMuted,
                 maxLines = 1,

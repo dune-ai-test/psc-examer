@@ -71,6 +71,17 @@
     });
   }
 
+  function resetPassword(userId, password) {
+    if (!allowed()) return Promise.reject(new Error('Admin access is required.'));
+    return A.auth.api(ENDPOINT, {
+      action: 'reset-password',
+      userId: userId,
+      password: password
+    }).then(function (data) {
+      return data.user;
+    });
+  }
+
   function assignSets(userId, setIds) {
     if (!allowed()) return Promise.reject(new Error('Admin access is required.'));
     return A.auth.api(ENDPOINT, {
@@ -88,6 +99,7 @@
     info: info,
     load: load,
     createUser: createUser,
+    resetPassword: resetPassword,
     assignSets: assignSets
   };
 })();

@@ -4,11 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.padanam.psc.AppContainer
+import com.padanam.psc.data.auth.AuthSession
+import com.padanam.psc.data.model.AiScanResult
+import com.padanam.psc.data.model.ScanDestination
+import com.padanam.psc.data.prefs.AppSettings
 import com.padanam.psc.data.remote.ScanException
 import com.padanam.psc.data.remote.ScanImage
 import com.padanam.psc.data.repo.LibraryRepository
 import com.padanam.psc.util.ImageUtils
 import com.padanam.psc.util.PreparedImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -26,13 +31,19 @@ data class AnalysingState(
     val error: String? = null,
     val running: Boolean = false,
     val setId: String? = null,
-    val questionCount: Int = 0
+    val questionCount: Int = 0,
+    val draft: AiScanResult? = null,
+    val destinations: List<ScanDestination> = emptyList(),
+    val targetSetId: String? = null,
+    val savedTitle: String = "",
+    val appended: Boolean = false
 ) {
     val stageLabel: String
         get() = when (stage) {
             "UPLOADING" -> "UPLOADING IMAGE"
             "READING" -> "READING TEXT"
             "MATCHING" -> "MATCHING OPTIONS"
+            "REVIEW" -> "READY TO SAVE"
             "SAVING" -> "SAVING TO DATABASE"
             "DONE" -> "READY"
             "ERROR" -> "SCAN PAUSED"
@@ -44,11 +55,15 @@ data class AnalysingState(
             "UPLOADING" -> "Preparing a compact copy of your photograph"
             "READING" -> "The scanner is reading the question and all four options"
             "MATCHING" -> "Aligning English and Malayalam, then checking the answer"
-            "SAVING" -> "Writing the verified questions into your library"
+            "REVIEW" -> "Check the draft, then choose where the questions should go"
+            "SAVING" -> "Writing the reviewed questions into your library"
             "DONE" -> "Saved. Opening the scan result…"
             "ERROR" -> error ?: "Something interrupted the scan."
             else -> "Usually ready in a few seconds — keep this screen open"
         }
+
+    val targetTitle: String?
+        get() = destinations.firstOrNull { it.id == targetSetId }?.title
 }
 
 class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
@@ -61,6 +76,7 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
     private var started = false
     private var progressJob: Job? = null
     private var workJob: Job? = null
+    private var saveJob: Job? = null
 
     fun start() {
         if (started) return
@@ -93,7 +109,12 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
             while (isActive) {
                 delay(220)
                 val snapshot = _state.value
-                if (snapshot.stage == "ERROR" || snapshot.stage == "DONE") continue
+                if (snapshot.stage == "ERROR" ||
+                    snapshot.stage == "REVIEW" ||
+                    snapshot.stage == "DONE"
+                ) {
+                    continue
+                }
                 val cap = when (snapshot.stage) {
                     "UPLOADING" -> 36
                     "READING" -> 66
@@ -142,57 +163,30 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
                     it.copy(stage = "MATCHING", progress = it.progress.coerceAtLeast(68))
                 }
 
-                val source = if (images.any { it.source == LibraryRepository.SOURCE_IMPORT }) {
-                    LibraryRepository.SOURCE_IMPORT
-                } else {
-                    LibraryRepository.SOURCE_SCAN
-                }
-                val setId = withContext(Dispatchers.IO) {
-                    container.libraryRepository.saveScan(
-                        result = result,
-                        source = source,
-                        imagePaths = images.map { it.path }
+                if (result.questions.isEmpty()) {
+                    throw ScanException(
+                        "No questions were found in these pages. Use a sharper photo and try again."
                     )
                 }
-                withContext(Dispatchers.IO) {
-                    container.settingsRepository.markSavedToLibrary(setId)
+
+                val destinations = withContext(Dispatchers.IO) {
+                    container.libraryRepository.scanDestinations()
                 }
 
                 _state.update {
                     it.copy(
-                        stage = "SAVING",
-                        progress = it.progress.coerceAtLeast(94),
-                        questionCount = result.questions.size
-                    )
-                }
-
-                delay(450)
-                _state.update {
-                    it.copy(
-                        stage = "DONE",
+                        stage = "REVIEW",
                         progress = 100,
                         running = false,
-                        setId = setId
+                        error = null,
+                        questionCount = result.questions.size,
+                        draft = result,
+                        destinations = destinations,
+                        targetSetId = null
                     )
                 }
-                container.scanSession.clear()
-
-                if (settings.autoSync) {
-                    viewModelScope.launch(Dispatchers.IO) {
-                        runCatching {
-                            val outcome = container.cloudSyncRepository.sync(
-                                settings.serverUrl,
-                                session,
-                                settings
-                            )
-                            if (outcome.ok) {
-                                container.settingsRepository.markSynced(outcome.message)
-                            } else {
-                                container.settingsRepository.markSyncFailed(outcome.message)
-                            }
-                        }
-                    }
-                }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: ScanException) {
                 progressJob?.cancel()
                 _state.update {
@@ -216,15 +210,139 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** Chooses the destination for the draft. `null` creates a new set. */
+    fun selectTarget(setId: String?) {
+        if (setId != null && _state.value.destinations.none { it.id == setId }) return
+        _state.update { it.copy(targetSetId = setId, error = null) }
+    }
+
+    /** Persists the reviewed draft as a new set or appends it to the target. */
+    fun saveDraft() {
+        val snapshot = _state.value
+        val draft = snapshot.draft ?: return
+        if (snapshot.running) return
+
+        val images = snapshot.images
+        val targetSetId = snapshot.targetSetId
+        _state.update {
+            it.copy(stage = "SAVING", progress = 94, running = true, error = null)
+        }
+
+        saveJob = viewModelScope.launch {
+            try {
+                val settings = withContext(Dispatchers.IO) { container.settingsRepository.current() }
+                val session = withContext(Dispatchers.IO) { container.authRepository.current() }
+                    ?: throw ScanException("Sign in again to save questions.")
+                if (!session.user.isAdmin) {
+                    throw ScanException("Only the administrator can save scanned questions.")
+                }
+
+                val source = if (images.any { it.source == LibraryRepository.SOURCE_IMPORT }) {
+                    LibraryRepository.SOURCE_IMPORT
+                } else {
+                    LibraryRepository.SOURCE_SCAN
+                }
+
+                val saved = withContext(Dispatchers.IO) {
+                    if (targetSetId == null) {
+                        val setId = container.libraryRepository.saveScan(
+                            result = draft,
+                            source = source,
+                            imagePaths = images.map { it.path }
+                        )
+                        SavedScan(
+                            setId = setId,
+                            title = container.libraryRepository.titleOf(setId)
+                                .ifBlank { draft.title.ifBlank { "Scanned set" } },
+                            added = draft.questions.size,
+                            appended = false
+                        )
+                    } else {
+                        val appended = container.libraryRepository.appendScan(targetSetId, draft)
+                        if (appended.added == 0) {
+                            throw ScanException(
+                                "That set is no longer in your library. Pick another destination and try again."
+                            )
+                        }
+                        SavedScan(
+                            setId = targetSetId,
+                            title = appended.title,
+                            added = appended.added,
+                            appended = true
+                        )
+                    }
+                }
+
+                // The set is already committed. A preferences hiccup must not
+                // bounce the review screen back and invite a duplicate save.
+                withContext(Dispatchers.IO) {
+                    runCatching { container.settingsRepository.markSavedToLibrary(saved.setId) }
+                }
+
+                _state.update {
+                    it.copy(
+                        stage = "DONE",
+                        progress = 100,
+                        running = false,
+                        error = null,
+                        setId = saved.setId,
+                        questionCount = saved.added,
+                        savedTitle = saved.title,
+                        appended = saved.appended
+                    )
+                }
+                container.scanSession.clear()
+
+                if (settings.autoSync) syncInBackground(settings, session)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.update {
+                    it.copy(
+                        stage = "REVIEW",
+                        progress = 100,
+                        running = false,
+                        error = error.message ?: "Couldn't save the scan. Try again."
+                    )
+                }
+            }
+        }
+    }
+
+    private fun syncInBackground(settings: AppSettings, session: AuthSession) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val outcome = container.cloudSyncRepository.sync(
+                    settings.serverUrl,
+                    session,
+                    settings
+                )
+                if (outcome.ok) {
+                    container.settingsRepository.markSynced(outcome.message)
+                } else {
+                    container.settingsRepository.markSyncFailed(outcome.message)
+                }
+            }
+        }
+    }
+
     fun retry() {
         workJob?.cancel()
         progressJob?.cancel()
+        saveJob?.cancel()
         started = false
-        _state.value = state.value.copy(
+        _state.value = _state.value.copy(
             stage = "UPLOADING",
             progress = 2,
             error = null,
-            running = false
+            running = false,
+            setId = null,
+            questionCount = 0,
+            draft = null,
+            destinations = emptyList(),
+            targetSetId = null,
+            savedTitle = "",
+            appended = false
         )
         start()
     }
@@ -232,6 +350,7 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
     fun cancel() {
         workJob?.cancel()
         progressJob?.cancel()
+        saveJob?.cancel()
         container.scanSession.clear()
         _state.update { it.copy(running = false, stage = "ERROR", error = "Scan cancelled.") }
     }
@@ -240,6 +359,7 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
         super.onCleared()
         workJob?.cancel()
         progressJob?.cancel()
+        saveJob?.cancel()
     }
 
     companion object {
@@ -252,3 +372,10 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
             }
     }
 }
+
+private data class SavedScan(
+    val setId: String,
+    val title: String,
+    val added: Int,
+    val appended: Boolean
+)

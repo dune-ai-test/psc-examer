@@ -124,6 +124,46 @@ class AdminViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    fun resetPassword(userId: String, password: String) {
+        if (_state.value.busy) return
+        if (userId.isBlank()) {
+            _state.update { it.copy(error = "Choose a learner first.") }
+            return
+        }
+        if (password.length < 8) {
+            _state.update { it.copy(error = "The new password must be at least 8 characters.") }
+            return
+        }
+        val user = _state.value.users.firstOrNull { it.id == userId }
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = context() ?: return@launch
+            _state.update { it.copy(busy = true, error = "", message = "") }
+            try {
+                container.serverApi.resetPassword(
+                    context.first,
+                    context.second.token,
+                    userId,
+                    password
+                )
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        message = "Password updated for ${user?.label ?: "the learner"}. " +
+                            "Share it privately; the old session stays valid until it expires."
+                    )
+                }
+            } catch (error: ServerException) {
+                _state.update {
+                    it.copy(busy = false, error = error.message ?: "Couldn't reset the password.")
+                }
+            } catch (error: Exception) {
+                _state.update {
+                    it.copy(busy = false, error = error.message ?: "Couldn't reset the password.")
+                }
+            }
+        }
+    }
+
     fun assignSelectedSets() {
         if (_state.value.busy) return
         val userId = _state.value.selectedUserId

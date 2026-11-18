@@ -1998,6 +1998,20 @@
             : 'No sets in the admin workspace yet. Add or import sets, press Sync now, then refresh this list.') + '</p>';
         }
 
+        var passwordReset = '<details class="admin-assign">' +
+          '<summary>Reset password</summary>' +
+          '<form data-form="reset-password" data-user-id="' + e(user.id) + '">' +
+            '<div class="field">' +
+              '<label class="field-label" for="resetPassword-' + e(user.id) + '">New password for @' + e(user.username) + '</label>' +
+              '<input class="input" id="resetPassword-' + e(user.id) + '" name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="200" placeholder="At least 8 characters">' +
+              '<span class="field-hint">Share it privately. The learner can keep using the current session until it expires.</span>' +
+            '</div>' +
+            '<div class="form-actions" style="margin-top:10px">' +
+              '<button type="submit" class="btn btn-primary btn-sm">' + icon('lock') + ' Set new password</button>' +
+            '</div>' +
+          '</form>' +
+        '</details>';
+
         return '<article class="admin-user">' +
           '<div class="admin-user-head">' +
             '<span class="avatar avatar--sm">' + e(A.initials(user.displayName)) + '</span>' +
@@ -2009,6 +2023,7 @@
           '</div>' +
           '<div class="admin-user-sets">' + chips + '</div>' +
           picker +
+          passwordReset +
         '</article>';
       }).join('') + '</div>';
     }
@@ -2034,7 +2049,7 @@
         '<div class="field" style="margin-top:14px">' +
           '<label class="field-label" for="adminPassword">First password</label>' +
           '<input class="input" id="adminPassword" name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="200" placeholder="At least 8 characters">' +
-          '<span class="field-hint">Share this password with the learner privately. There is no automatic reset flow.</span>' +
+          '<span class="field-hint">Share this password with the learner privately. You can reset it later from the account list.</span>' +
         '</div>' +
         '<div class="form-actions" style="margin-top:14px">' +
           '<button type="submit" class="btn btn-primary">' + icon('plus') + ' Create account</button>' +

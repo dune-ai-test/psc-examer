@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import com.padanam.psc.data.model.SetSummary
 import kotlinx.coroutines.flow.Flow
 
@@ -54,8 +55,29 @@ interface AppDao {
     @Query("SELECT * FROM sets ORDER BY createdAt DESC")
     suspend fun setsOnce(): List<SetEntity>
 
+    @Query(
+        """
+        SELECT s.*,
+            (SELECT COUNT(*) FROM questions q WHERE q.setId = s.id) AS questionCount,
+            (SELECT MAX(a.scorePercent) FROM attempts a WHERE a.setId = s.id) AS bestScore,
+            (SELECT COUNT(*) FROM attempts a WHERE a.setId = s.id) AS attemptCount,
+            (SELECT MAX(a.completedAt) FROM attempts a WHERE a.setId = s.id) AS lastAttemptAt
+        FROM sets s
+        ORDER BY s.updatedAt DESC
+        """
+    )
+    suspend fun setSummariesOnce(): List<SetSummary>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSet(set: SetEntity)
+
+    /**
+     * Updates the row in place. `INSERT OR REPLACE` on a set would delete and
+     * re-insert the parent row, which fires the questions foreign-key cascade
+     * and silently empties the set.
+     */
+    @Update
+    suspend fun updateSet(set: SetEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSets(sets: List<SetEntity>)
@@ -113,6 +135,13 @@ interface AppDao {
     suspend fun replaceSetWithQuestions(set: SetEntity, questions: List<QuestionEntity>) {
         deleteQuestionsForSet(set.id)
         insertSet(set)
+        insertQuestions(questions)
+    }
+
+    /** Appends questions without touching the existing rows in the set. */
+    @Transaction
+    suspend fun appendQuestionsToSet(set: SetEntity, questions: List<QuestionEntity>) {
+        updateSet(set)
         insertQuestions(questions)
     }
 
