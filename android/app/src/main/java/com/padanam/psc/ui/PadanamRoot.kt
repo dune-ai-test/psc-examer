@@ -8,8 +8,10 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -19,6 +21,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.padanam.psc.AppContainer
 import com.padanam.psc.data.model.QuizMode
+import com.padanam.psc.ui.admin.AdminScreen
+import com.padanam.psc.ui.auth.AuthLoadingScreen
+import com.padanam.psc.ui.auth.LoginScreen
 import com.padanam.psc.ui.components.FloatingTabBar
 import com.padanam.psc.ui.components.MainTab
 import com.padanam.psc.ui.exam.ExamSetupScreen
@@ -42,6 +47,7 @@ object Routes {
     const val PROGRESS = "progress"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
+    const val ADMIN = "admin"
     const val SCAN = "scan"
     const val ANALYSING = "analysing"
     const val QUIZ = "quiz"
@@ -63,6 +69,29 @@ object Routes {
 fun PadanamRoot(
     container: AppContainer,
     appVm: AppViewModel
+) {
+    val authReady by appVm.authReady.collectAsStateWithLifecycle()
+    val session by appVm.session.collectAsStateWithLifecycle()
+    val settings by appVm.settings.collectAsStateWithLifecycle()
+
+    val account = session
+    when {
+        !authReady -> AuthLoadingScreen()
+        account == null -> LoginScreen(
+            appVm = appVm,
+            initialServer = settings.serverUrl
+        )
+        else -> key(account.user.id) {
+            SignedInRoot(container, appVm, admin = account.user.isAdmin)
+        }
+    }
+}
+
+@Composable
+private fun SignedInRoot(
+    container: AppContainer,
+    appVm: AppViewModel,
+    admin: Boolean
 ) {
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -92,6 +121,14 @@ fun PadanamRoot(
         }
     }
 
+    fun openScan(gallery: Boolean = false) {
+        if (!admin) {
+            appVm.emit(UiEvent("Only the administrator can scan pages.", error = true))
+            return
+        }
+        navController.navigate(Routes.scan(gallery))
+    }
+
     Scaffold(
         containerColor = Cloud,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -113,8 +150,9 @@ fun PadanamRoot(
             composable(Routes.HOME) {
                 HomeScreen(
                     appVm = appVm,
-                    onScan = { navController.navigate(Routes.scan()) },
-                    onImport = { navController.navigate(Routes.scan(gallery = true)) },
+                    canScan = admin,
+                    onScan = { openScan() },
+                    onImport = { openScan(gallery = true) },
                     onOpenSet = { navController.navigate(Routes.set(it)) },
                     onOpenLibrary = { navigateTab(Routes.LIBRARY) },
                     onResumeExam = { navController.navigate(Routes.QUIZ) },
@@ -129,8 +167,9 @@ fun PadanamRoot(
             composable(Routes.LIBRARY) {
                 LibraryScreen(
                     appVm = appVm,
-                    onScan = { navController.navigate(Routes.scan()) },
-                    onImport = { navController.navigate(Routes.scan(gallery = true)) },
+                    canScan = admin,
+                    onScan = { openScan() },
+                    onImport = { openScan(gallery = true) },
                     onOpenSet = { navController.navigate(Routes.set(it)) }
                 )
             }
@@ -146,7 +185,9 @@ fun PadanamRoot(
             composable(Routes.PROFILE) {
                 ProfileScreen(
                     appVm = appVm,
+                    canManage = admin,
                     onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                    onOpenAdmin = { navController.navigate(Routes.ADMIN) },
                     onOpenAttempt = { navController.navigate(Routes.review(it)) }
                 )
             }
@@ -154,6 +195,14 @@ fun PadanamRoot(
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     appVm = appVm,
+                    onBack = { navController.popBackStack() },
+                    onOpenAdmin = { navController.navigate(Routes.ADMIN) }
+                )
+            }
+
+            composable(Routes.ADMIN) {
+                AdminScreen(
+                    container = container,
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -166,6 +215,7 @@ fun PadanamRoot(
                 SetDetailScreen(
                     appVm = appVm,
                     setId = setId,
+                    canManage = admin,
                     onBack = { navController.popBackStack() },
                     onStartSetup = { mode ->
                         navController.navigate(Routes.examSetup(setId, mode))
@@ -277,7 +327,7 @@ fun PadanamRoot(
                     onClose = { navController.popBackStack() },
                     onViewSet = { navController.navigate(Routes.set(setId)) },
                     onPractice = { navController.navigate(Routes.examSetup(setId, QuizMode.PRACTICE)) },
-                    onScanAgain = { navController.navigate(Routes.scan()) },
+                    onScanAgain = { openScan() },
                     onOpenSettings = { navController.navigate(Routes.SETTINGS) }
                 )
             }

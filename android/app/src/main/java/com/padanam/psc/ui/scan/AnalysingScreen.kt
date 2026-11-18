@@ -79,8 +79,8 @@ import java.io.File
 import kotlinx.coroutines.delay
 
 /**
- * Progress screen shown while Gemini reads the captured pages and the set is
- * written to Room. The mockup's "keep this screen open" note is honest: the
+ * Progress screen shown while the scanner reads the captured pages and the set
+ * is written to Room. The mockup's "keep this screen open" note is honest: the
  * upload lives in this ViewModel. A failure swaps the progress block for a
  * recovery card with retry, settings and cancel paths.
  */
@@ -597,7 +597,7 @@ private fun ErrorCard(
                 color = Indigo
             )
             Text(
-                "Check that your Gemini key is set in Settings and that the photo is sharp, not cropped, and well lit.",
+                "Check the Padanam site address in Settings and that the photo is sharp, not cropped, and well lit.",
                 style = AppType.BodyTiny,
                 color = IndigoText
             )

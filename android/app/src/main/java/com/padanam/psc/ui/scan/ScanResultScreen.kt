@@ -188,7 +188,7 @@ fun ScanResultScreen(
                         EmptyStateCard(
                             icon = Icons.Rounded.ErrorOutline,
                             title = "No questions saved",
-                            body = "The set exists but Gemini did not return a usable question. Scan a sharper photo to try again.",
+                            body = "The set exists but the scanner did not return a usable question. Scan a sharper photo to try again.",
                             primaryLabel = "Scan again",
                             onPrimary = onScanAgain
                         )

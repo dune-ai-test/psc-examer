@@ -54,9 +54,9 @@ object ImageUtils {
     }
 
     /**
-     * Downsample, rotate using EXIF and re-encode as JPEG. Gemini receives a
-     * much smaller payload and the upload progress feels immediate even on a
-     * slow mobile connection.
+     * Downsample, rotate using EXIF and re-encode as JPEG. The scanning
+     * service receives a much smaller payload and the upload progress feels
+     * immediate even on a slow mobile connection.
      */
     suspend fun compressForUpload(path: String, maxDimension: Int = 1600, quality: Int = 86): ByteArray =
         withContext(Dispatchers.IO) {

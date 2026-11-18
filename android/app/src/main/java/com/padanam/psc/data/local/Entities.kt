@@ -11,6 +11,7 @@ data class SetEntity(
     val title: String,
     val subject: String,
     val createdAt: Long,
+    val updatedAt: Long = createdAt,
     val source: String = "scan",
     val imageUrisJson: String? = null,
     val synced: Boolean = false

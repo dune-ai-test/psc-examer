@@ -1,6 +1,0 @@
-# Put your secrets in android/local.properties (never commit this file)
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.5-flash
-NEON_CONNECTION_STRING=
-# Optional. Leave empty to derive https://api.<region>/sql automatically.
-NEON_HTTP_ENDPOINT=

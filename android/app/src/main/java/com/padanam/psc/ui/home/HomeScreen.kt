@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.LocalFireDepartment
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Timer
@@ -61,6 +62,7 @@ import com.padanam.psc.ui.components.Avatar
 import com.padanam.psc.ui.components.DarkCardButton
 import com.padanam.psc.ui.components.DarkGradientCard
 import com.padanam.psc.ui.components.InfoNote
+import com.padanam.psc.ui.components.LightButton
 import com.padanam.psc.ui.components.PadanamStatusBar
 import com.padanam.psc.ui.components.PadanamToggle
 import com.padanam.psc.ui.components.PageHeader
@@ -90,6 +92,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun HomeScreen(
     appVm: AppViewModel,
+    canScan: Boolean,
     onScan: () -> Unit,
     onImport: () -> Unit,
     onOpenSet: (String) -> Unit,
@@ -202,11 +205,10 @@ fun HomeScreen(
                 }
             }
 
-            if (exam == null) {
+            if (exam == null && canScan) {
                 item {
                     ScanCard(
                         newUser = newUser,
-                        aiReady = settings.aiConfigured,
                         setCount = sets.size,
                         onScan = onScan,
                         onImport = onImport
@@ -216,10 +218,14 @@ fun HomeScreen(
 
             if (newUser && exam == null) {
                 item {
-                    GettingStarted(
-                        onScan = onScan,
-                        onChooseFormat = onOpenProfile
-                    )
+                    if (canScan) {
+                        GettingStarted(
+                            onScan = onScan,
+                            onChooseFormat = onOpenProfile
+                        )
+                    } else {
+                        AwaitingLibrary(onOpenProfile = onOpenProfile)
+                    }
                 }
             }
 
@@ -520,7 +526,6 @@ private fun SavedStrip(title: String, questions: Int, onOpen: () -> Unit) {
 @Composable
 private fun ScanCard(
     newUser: Boolean,
-    aiReady: Boolean,
     setCount: Int,
     onScan: () -> Unit,
     onImport: () -> Unit
@@ -553,13 +558,12 @@ private fun ScanCard(
             }
             Text(
                 when {
-                    !aiReady -> "GEMINI KEY NEEDED"
                     newUser -> "FIRST SCAN FREE"
                     setCount == 0 -> "READY WHEN YOU ARE"
                     else -> "$setCount SETS SAVED"
                 },
                 style = AppType.MonoSmall.copy(letterSpacing = 0.5.sp),
-                color = if (aiReady) SurfaceWhite.copy(alpha = 0.5f) else Amber
+                color = SurfaceWhite.copy(alpha = 0.5f)
             )
         }
 
@@ -796,6 +800,39 @@ private fun GettingStarted(
     }
 }
 
+@Composable
+private fun AwaitingLibrary(onOpenProfile: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(SurfaceWhite)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Your library is empty", style = AppType.SectionTitle, color = Navy)
+        Text(
+            "Your administrator assigns question sets to this account. Pull down on the " +
+                "library or press Sync now in Settings to check for new sets.",
+            style = AppType.BodySmall,
+            color = InkMuted
+        )
+        ThinDivider()
+        InfoNote(
+            text = "You can practise and take mock exams as soon as a set arrives. " +
+                "Scanning and library editing stay with the administrator.",
+            icon = Icons.Rounded.AutoAwesome
+        )
+        LightButton(
+            text = "Open profile",
+            onClick = onOpenProfile,
+            icon = Icons.Rounded.Person,
+            container = IndigoSoft,
+            tint = Indigo,
+            height = 46.dp
+        )
+    }
+}
 private enum class StepState { DONE, ACTIVE, PENDING }
 
 @Composable

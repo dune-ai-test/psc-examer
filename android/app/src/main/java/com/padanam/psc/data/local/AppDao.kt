@@ -110,6 +110,13 @@ interface AppDao {
     }
 
     @Transaction
+    suspend fun replaceSetWithQuestions(set: SetEntity, questions: List<QuestionEntity>) {
+        deleteQuestionsForSet(set.id)
+        insertSet(set)
+        insertQuestions(questions)
+    }
+
+    @Transaction
     suspend fun deleteSetWithQuestions(setId: String) {
         deleteQuestionsForSet(setId)
         deleteSetById(setId)

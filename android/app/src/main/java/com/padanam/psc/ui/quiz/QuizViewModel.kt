@@ -231,14 +231,24 @@ class QuizViewModel(private val container: AppContainer) : ViewModel() {
                 }
 
                 // Mirror the scan flow: when auto-sync is on, push the finished
-                // attempt (and its score) to Neon without blocking navigation.
+                // attempt (and its score) to the account workspace without
+                // blocking navigation.
                 val settings = runCatching {
                     withContext(Dispatchers.IO) { container.settingsRepository.current() }
                 }.getOrNull()
-                if (settings != null && settings.autoSync && settings.neonConfigured) {
+                val session = runCatching {
+                    withContext(Dispatchers.IO) { container.authRepository.current() }
+                }.getOrNull()
+                if (settings != null && session != null && settings.autoSync &&
+                    settings.serverUrl.isNotBlank()
+                ) {
                     container.appScope.launch(Dispatchers.IO) {
                         runCatching {
-                            val outcome = container.syncRepository.sync(settings)
+                            val outcome = container.cloudSyncRepository.sync(
+                                settings.serverUrl,
+                                session,
+                                settings
+                            )
                             if (outcome.ok) {
                                 container.settingsRepository.markSynced(outcome.message)
                             } else {

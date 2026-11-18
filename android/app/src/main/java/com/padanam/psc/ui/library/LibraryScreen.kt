@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.DocumentScanner
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Lightbulb
@@ -69,11 +70,11 @@ private const val FILTER_DUE = "due"
 @Composable
 fun LibraryScreen(
     appVm: AppViewModel,
+    canScan: Boolean,
     onScan: () -> Unit,
     onImport: () -> Unit,
     onOpenSet: (String) -> Unit
 ) {
-    val settings by appVm.settings.collectAsStateWithLifecycle()
     val sets by appVm.sets.collectAsStateWithLifecycle()
     val questionCount by appVm.questionCount.collectAsStateWithLifecycle()
 
@@ -210,28 +211,37 @@ fun LibraryScreen(
                 }
             }
 
-            item {
-                ScanCard(
-                    setCount = sets.size,
-                    aiReady = settings.aiConfigured,
-                    onScan = onScan,
-                    onImport = onImport
-                )
+            if (canScan) {
+                item {
+                    ScanCard(
+                        setCount = sets.size,
+                        onScan = onScan,
+                        onImport = onImport
+                    )
+                }
             }
 
             if (sets.isEmpty()) {
                 item {
-                    EmptyStateCard(
-                        icon = Icons.Rounded.DocumentScanner,
-                        title = "No question sets yet",
-                        body = "Scan a photo of a question sheet and every question with its four options is saved here automatically.",
-                        primaryLabel = "Scan your first question",
-                        onPrimary = onScan,
-                        primaryIcon = Icons.Rounded.DocumentScanner,
-                        secondaryLabel = "Import from photos",
-                        onSecondary = onImport,
-                        secondaryIcon = Icons.Rounded.Image
-                    )
+                    if (canScan) {
+                        EmptyStateCard(
+                            icon = Icons.Rounded.DocumentScanner,
+                            title = "No question sets yet",
+                            body = "Scan a photo of a question sheet and every question with its four options is saved here automatically.",
+                            primaryLabel = "Scan your first question",
+                            onPrimary = onScan,
+                            primaryIcon = Icons.Rounded.DocumentScanner,
+                            secondaryLabel = "Import from photos",
+                            onSecondary = onImport,
+                            secondaryIcon = Icons.Rounded.Image
+                        )
+                    } else {
+                        EmptyStateCard(
+                            icon = Icons.Rounded.CloudQueue,
+                            title = "Waiting for your library",
+                            body = "Your administrator assigns question sets to this account. Open Settings and press Sync now to check for new sets."
+                        )
+                    }
                 }
                 item {
                     Row(
@@ -250,7 +260,11 @@ fun LibraryScreen(
                             modifier = Modifier.size(17.dp)
                         )
                         Text(
-                            "One photo can hold up to 5 questions — we split them for you.",
+                            if (canScan) {
+                                "One photo can hold up to 5 questions — we split them for you."
+                            } else {
+                                "Assigned sets arrive after you sign in and sync your account."
+                            },
                             style = AppType.BodySmall,
                             color = IndigoText
                         )
@@ -325,9 +339,9 @@ fun LibraryScreen(
                         color = InkMuted
                     )
                     Text(
-                        if (settings.aiConfigured) "AI READY" else "ADD GEMINI KEY",
+                        if (canScan) "ADMIN LIBRARY" else "ASSIGNED LIBRARY",
                         style = AppType.MonoSmall.copy(letterSpacing = 0.5.sp),
-                        color = if (settings.aiConfigured) InkMuted else com.padanam.psc.ui.theme.Amber
+                        color = InkMuted
                     )
                 }
             }
@@ -338,7 +352,6 @@ fun LibraryScreen(
 @Composable
 private fun ScanCard(
     setCount: Int,
-    aiReady: Boolean,
     onScan: () -> Unit,
     onImport: () -> Unit
 ) {
@@ -366,12 +379,11 @@ private fun ScanCard(
             }
             Text(
                 when {
-                    !aiReady -> "GEMINI KEY NEEDED"
                     setCount == 0 -> "READY"
                     else -> "$setCount SETS"
                 },
                 style = AppType.MonoSmall.copy(letterSpacing = 0.5.sp),
-                color = if (aiReady) SurfaceWhite.copy(alpha = 0.5f) else com.padanam.psc.ui.theme.Amber
+                color = SurfaceWhite.copy(alpha = 0.5f)
             )
         }
         Text(

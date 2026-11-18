@@ -13,10 +13,16 @@ class PadanamApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
-        NotificationHelper.createChannel(this)
+
+        /* Startup must never crash the app. A restored backup or a device
+           without notification permission should not stop the library from
+           opening; both helpers are best-effort. */
+        runCatching { NotificationHelper.createChannel(this) }
         container.appScope.launch {
-            val settings = runCatching { container.settingsRepository.current() }.getOrNull() ?: return@launch
-            ReminderScheduler.schedule(this@PadanamApp, settings.reminders)
+            runCatching {
+                val settings = container.settingsRepository.current()
+                ReminderScheduler.schedule(this@PadanamApp, settings.reminders)
+            }
         }
     }
 }

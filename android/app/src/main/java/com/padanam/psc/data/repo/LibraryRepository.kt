@@ -38,6 +38,7 @@ class LibraryRepository(private val dao: AppDao) {
             title = title,
             subject = result.subject.ifBlank { "General" },
             createdAt = now,
+            updatedAt = now,
             source = source,
             imageUrisJson = if (imagePaths.isEmpty()) {
                 null
@@ -63,8 +64,14 @@ class LibraryRepository(private val dao: AppDao) {
         val set = dao.getSet(setId) ?: return
         val clean = newTitle.trim().take(80)
         if (clean.isBlank() || clean == set.title) return
-        // Keep the set pending so the new title reaches Neon on the next sync.
-        dao.insertSet(set.copy(title = clean, synced = false))
+        // Keep the set newer than the cloud copy so the next sync pushes it.
+        dao.insertSet(
+            set.copy(
+                title = clean,
+                updatedAt = System.currentTimeMillis(),
+                synced = false
+            )
+        )
     }
 
     suspend fun deleteSet(setId: String) = dao.deleteSetWithQuestions(setId)

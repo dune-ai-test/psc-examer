@@ -17,7 +17,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Timer
@@ -66,8 +65,6 @@ import com.padanam.psc.ui.theme.AmberInk
 import com.padanam.psc.ui.theme.AmberSoft
 import com.padanam.psc.ui.theme.AppType
 import com.padanam.psc.ui.theme.Cloud
-import com.padanam.psc.ui.theme.Danger
-import com.padanam.psc.ui.theme.DangerSoft
 import com.padanam.psc.ui.theme.Indigo
 import com.padanam.psc.ui.theme.IndigoSoft
 import com.padanam.psc.ui.theme.IndigoText
@@ -84,6 +81,7 @@ import kotlinx.coroutines.delay
 fun SetDetailScreen(
     appVm: AppViewModel,
     setId: String,
+    canManage: Boolean,
     onBack: () -> Unit,
     onStartSetup: (String) -> Unit,
     onOpenAttempt: (String) -> Unit
@@ -97,7 +95,6 @@ fun SetDetailScreen(
     val setAttempts = attempts.filter { it.setId == setId }
     var language by rememberSaveable(setId) { mutableStateOf(settings.language) }
     var renameOpen by remember { mutableStateOf(false) }
-    var deleteOpen by remember { mutableStateOf(false) }
     var showAll by rememberSaveable(setId) { mutableStateOf(false) }
     var waited by remember(setId) { mutableStateOf(false) }
     val expanded = remember { mutableStateMapOf<String, Boolean>() }
@@ -124,7 +121,7 @@ fun SetDetailScreen(
                     EmptyStateCard(
                         icon = Icons.Rounded.AutoAwesome,
                         title = "Set not found",
-                        body = "This set may have been deleted on this phone or on another device.",
+                        body = "This set is not available on this device. Sync your account to refresh the library.",
                         primaryLabel = "Go back",
                         onPrimary = onBack
                     )
@@ -148,20 +145,14 @@ fun SetDetailScreen(
             title = "Question set",
             onBack = onBack,
             trailing = {
-                CircleAction(
-                    icon = Icons.Rounded.Edit,
-                    contentDescription = "Rename set",
-                    onClick = { renameOpen = true },
-                    size = 40.dp
-                )
-                CircleAction(
-                    icon = Icons.Rounded.DeleteOutline,
-                    contentDescription = "Delete set",
-                    onClick = { deleteOpen = true },
-                    size = 40.dp,
-                    tint = Danger,
-                    container = SurfaceWhite
-                )
+                if (canManage) {
+                    CircleAction(
+                        icon = Icons.Rounded.Edit,
+                        contentDescription = "Rename set",
+                        onClick = { renameOpen = true },
+                        size = 40.dp
+                    )
+                }
             }
         )
 
@@ -344,7 +335,7 @@ fun SetDetailScreen(
         }
     }
 
-    if (renameOpen) {
+    if (renameOpen && canManage) {
         var title by remember(info.id) { mutableStateOf(info.title) }
         AlertDialog(
             onDismissRequest = { renameOpen = false },
@@ -387,54 +378,6 @@ fun SetDetailScreen(
         )
     }
 
-    if (deleteOpen) {
-        AlertDialog(
-            onDismissRequest = { deleteOpen = false },
-            containerColor = SurfaceWhite,
-            shape = RoundedCornerShape(24.dp),
-            title = { Text("Delete this set?", style = AppType.Question, color = Navy) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "The set, its ${info.questionCount} questions and ${setAttempts.size} attempt scores will be removed from this phone.",
-                        style = AppType.BodySmall,
-                        color = InkMuted
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(DangerSoft)
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            "If Neon sync is on, the set is deleted there too on the next sync.",
-                            style = AppType.BodyTiny,
-                            color = Danger
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        appVm.deleteSet(setId)
-                        deleteOpen = false
-                        onBack()
-                    }
-                ) {
-                    Text("Delete", style = AppType.ButtonSmall, color = Danger)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteOpen = false }) {
-                    Text("Keep set", style = AppType.ButtonSmall, color = InkMuted)
-                }
-            }
-        )
-    }
 }
 
 @Composable

@@ -1,10 +1,10 @@
 name: Build debug APK
 
-# Every push to main builds the app on a GitHub runner and publishes the
-# debug APK straight to a pre-release. No local build is needed.
+# Every push to main or web builds the app on a GitHub runner and publishes
+# the debug APK straight to a pre-release. No local build is needed.
 on:
   push:
-    branches: [main]
+    branches: [main, web]
   workflow_dispatch:
 
 permissions:
@@ -44,7 +44,7 @@ jobs:
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v1.0.0-debug.${{ github.run_number }}
+          TAG: v1.1.0-debug.${{ github.run_number }}
         run: |
           gh release create "$TAG" \
             "android/app/build/outputs/apk/debug/app-debug.apk" \

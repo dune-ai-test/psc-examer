@@ -81,10 +81,13 @@ import com.padanam.psc.util.Format
 @Composable
 fun ProfileScreen(
     appVm: AppViewModel,
+    canManage: Boolean,
     onOpenSettings: () -> Unit,
+    onOpenAdmin: () -> Unit,
     onOpenAttempt: (String) -> Unit
 ) {
     val settings by appVm.settings.collectAsStateWithLifecycle()
+    val session by appVm.session.collectAsStateWithLifecycle()
     val sets by appVm.sets.collectAsStateWithLifecycle()
     val attempts by appVm.attempts.collectAsStateWithLifecycle()
     val questionCount by appVm.questionCount.collectAsStateWithLifecycle()
@@ -103,6 +106,7 @@ fun ProfileScreen(
     } else {
         "Never synced"
     }
+    val account = session?.user
 
     Column(
         modifier = Modifier
@@ -204,28 +208,28 @@ fun ProfileScreen(
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             Icon(
-                                if (settings.neonConfigured) Icons.Rounded.CloudDone else Icons.Rounded.Lock,
+                                if (settings.serverConfigured) Icons.Rounded.CloudDone else Icons.Rounded.Lock,
                                 null,
-                                tint = if (settings.neonConfigured) SuccessBright else SurfaceWhite.copy(alpha = 0.7f),
+                                tint = if (settings.serverConfigured) SuccessBright else SurfaceWhite.copy(alpha = 0.7f),
                                 modifier = Modifier.size(13.dp)
                             )
                             Text(
-                                "Neon backup",
+                                "Account sync",
                                 style = AppType.MonoChip,
                                 color = SurfaceWhite
                             )
                         }
                         Text(
-                            if (settings.neonConfigured) "CONNECTED" else "NOT SET UP",
+                            if (settings.serverConfigured) "CONNECTED" else "NOT SET UP",
                             style = AppType.MonoSmall.copy(letterSpacing = 0.5.sp),
-                            color = if (settings.neonConfigured) SuccessBright else SurfaceWhite.copy(alpha = 0.5f)
+                            color = if (settings.serverConfigured) SuccessBright else SurfaceWhite.copy(alpha = 0.5f)
                         )
                     }
                     Text(
-                        if (settings.neonConfigured) {
-                            "Questions and every attempt score are mirrored to your Neon database."
+                        if (settings.serverConfigured) {
+                            "Questions, every attempt score and your profile sync through the Padanam server."
                         } else {
-                            "Add your Neon connection string to keep a second copy of every set and score."
+                            "Add the Padanam site address in Settings to sync this account."
                         },
                         style = AppType.BodySmall,
                         color = SurfaceWhite.copy(alpha = 0.7f)
@@ -236,16 +240,16 @@ fun ProfileScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            if (settings.neonConfigured) "Last sync · $lastSync" else "Local only · ${sets.size} sets",
+                            if (settings.serverConfigured) "Last sync · $lastSync" else "Local only · ${sets.size} sets",
                             style = AppType.MonoSmall,
                             color = SurfaceWhite.copy(alpha = 0.5f),
                             modifier = Modifier.weight(1f)
                         )
                         DarkCardButton(
-                            text = if (settings.neonConfigured) "Sync now" else "Set up",
-                            icon = if (settings.neonConfigured) Icons.Rounded.Sync else Icons.Rounded.Settings,
+                            text = if (settings.serverConfigured) "Sync now" else "Set up",
+                            icon = if (settings.serverConfigured) Icons.Rounded.Sync else Icons.Rounded.Settings,
                             onClick = {
-                                if (settings.neonConfigured) appVm.syncNow() else onOpenSettings()
+                                if (settings.serverConfigured) appVm.syncNow() else onOpenSettings()
                             }
                         )
                     }
@@ -269,6 +273,13 @@ fun ProfileScreen(
                         .clip(RoundedCornerShape(20.dp))
                         .background(SurfaceWhite)
                 ) {
+                    if (account != null) {
+                        SettingsRow(
+                            label = "Account",
+                            value = "@${account.username} · ${if (account.isAdmin) "Admin" else "Learner"}"
+                        )
+                        ThinDivider()
+                    }
                     SettingsRow(label = "Your name", value = settings.name, onClick = { editOpen = true })
                     ThinDivider()
                     SettingsRow(
@@ -292,12 +303,20 @@ fun ProfileScreen(
                         value = "${settings.dailyGoal} questions",
                         onClick = { goalOpen = true }
                     )
-                    ThinDivider()
-                    SettingsRow(
-                        label = "Export library",
-                        value = "JSON",
-                        onClick = { appVm.exportLibrary() }
-                    )
+                    if (canManage) {
+                        ThinDivider()
+                        SettingsRow(
+                            label = "Admin console",
+                            value = "Learners & assignments",
+                            onClick = onOpenAdmin
+                        )
+                        ThinDivider()
+                        SettingsRow(
+                            label = "Export library",
+                            value = "JSON",
+                            onClick = { appVm.exportLibrary() }
+                        )
+                    }
                 }
             }
 
@@ -437,7 +456,7 @@ fun ProfileScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Scan a printed question sheet with all four options visible. Gemini extracts the text, both languages and the correct answer.",
+                        "Scan a printed question sheet with all four options visible. The scanner extracts the text, both languages and the correct answer.",
                         style = AppType.BodySmall,
                         color = InkMuted
                     )
@@ -470,12 +489,12 @@ fun ProfileScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Your sets live in a private database on this phone. Photos are sent to Gemini only while a scan is running, and are compressed first.",
+                        "Your library is cached on this phone. While you are signed in, sets, attempts and your profile sync to your own account workspace in the shared Padanam database.",
                         style = AppType.BodySmall,
                         color = InkMuted
                     )
                     Text(
-                        "If Neon backup is configured, questions and attempt scores are copied to your own Neon project. No third-party analytics are included.",
+                        "Photographs are sent to the Padanam scanning service only while a scan is running. No AI or database key is stored on this phone, and no images are saved in the cloud.",
                         style = AppType.BodySmall,
                         color = InkMuted
                     )

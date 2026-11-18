@@ -42,9 +42,9 @@ data class AnalysingState(
     val note: String
         get() = when (stage) {
             "UPLOADING" -> "Preparing a compact copy of your photograph"
-            "READING" -> "Gemini is reading the question and all four options"
+            "READING" -> "The scanner is reading the question and all four options"
             "MATCHING" -> "Aligning English and Malayalam, then checking the answer"
-            "SAVING" -> "Writing the verified question into your library"
+            "SAVING" -> "Writing the verified questions into your library"
             "DONE" -> "Saved. Opening the scan result…"
             "ERROR" -> error ?: "Something interrupted the scan."
             else -> "Usually ready in a few seconds — keep this screen open"
@@ -110,8 +110,13 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
         workJob = viewModelScope.launch {
             try {
                 val settings = withContext(Dispatchers.IO) { container.settingsRepository.current() }
-                if (settings.geminiKey.isBlank()) {
-                    throw ScanException("Add your Gemini API key in Settings, then scan again.")
+                if (settings.serverUrl.isBlank()) {
+                    throw ScanException("Add the Padanam site address in Settings, then scan again.")
+                }
+                val session = withContext(Dispatchers.IO) { container.authRepository.current() }
+                    ?: throw ScanException("Sign in again to scan questions.")
+                if (!session.user.isAdmin) {
+                    throw ScanException("Only the administrator can scan questions.")
                 }
 
                 val payload = withContext(Dispatchers.IO) {
@@ -127,9 +132,9 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
                     it.copy(stage = "READING", progress = it.progress.coerceAtLeast(38))
                 }
 
-                val result = container.geminiRepository.extractQuestions(
-                    apiKey = settings.geminiKey,
-                    model = settings.geminiModel,
+                val result = container.scanRepository.extractQuestions(
+                    baseUrl = settings.serverUrl,
+                    token = session.token,
                     images = payload
                 )
 
@@ -172,10 +177,14 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
                 }
                 container.scanSession.clear()
 
-                if (settings.autoSync && settings.neonConfigured) {
+                if (settings.autoSync) {
                     viewModelScope.launch(Dispatchers.IO) {
                         runCatching {
-                            val outcome = container.syncRepository.sync(settings)
+                            val outcome = container.cloudSyncRepository.sync(
+                                settings.serverUrl,
+                                session,
+                                settings
+                            )
                             if (outcome.ok) {
                                 container.settingsRepository.markSynced(outcome.message)
                             } else {

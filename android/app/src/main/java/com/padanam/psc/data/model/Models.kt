@@ -17,7 +17,7 @@ object QuizMode {
     const val EXAM = "exam"
 }
 
-/** Raw structured output from Gemini. */
+/** Raw structured output from the scanning service. */
 @Serializable
 data class AiScanResult(
     val title: String = "",

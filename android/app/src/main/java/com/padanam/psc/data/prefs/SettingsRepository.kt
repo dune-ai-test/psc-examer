@@ -7,9 +7,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.padanam.psc.BuildConfig
 import com.padanam.psc.data.model.Lang
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -24,19 +22,16 @@ data class AppSettings(
     val language: String = Lang.EN,
     val dailyGoal: Int = 30,
     val reminders: Boolean = true,
-    val geminiKey: String = BuildConfig.GEMINI_API_KEY,
-    val geminiModel: String = BuildConfig.GEMINI_MODEL,
-    val neonUrl: String = BuildConfig.NEON_CONNECTION_STRING,
-    val neonEndpoint: String = BuildConfig.NEON_HTTP_ENDPOINT,
+    val serverUrl: String = "",
     val autoSync: Boolean = true,
     val lastSyncAt: Long = 0L,
     val lastSyncMessage: String = "",
+    val profileUpdatedAt: Long = 0L,
+    val lastAccountId: String = "",
     val lastSavedSetId: String? = null,
-    val lastSavedAt: Long = 0L,
-    val deletedSetIds: Set<String> = emptySet()
+    val lastSavedAt: Long = 0L
 ) {
-    val aiConfigured: Boolean get() = geminiKey.isNotBlank()
-    val neonConfigured: Boolean get() = neonUrl.isNotBlank()
+    val serverConfigured: Boolean get() = serverUrl.isNotBlank()
 }
 
 class SettingsRepository(private val context: Context) {
@@ -46,16 +41,20 @@ class SettingsRepository(private val context: Context) {
         val language = stringPreferencesKey("language")
         val dailyGoal = intPreferencesKey("daily_goal")
         val reminders = booleanPreferencesKey("reminders")
-        val geminiKey = stringPreferencesKey("gemini_key")
-        val geminiModel = stringPreferencesKey("gemini_model")
-        val neonUrl = stringPreferencesKey("neon_url")
-        val neonEndpoint = stringPreferencesKey("neon_endpoint")
+        val serverUrl = stringPreferencesKey("server_url")
         val autoSync = booleanPreferencesKey("auto_sync")
         val lastSyncAt = longPreferencesKey("last_sync_at")
         val lastSyncMessage = stringPreferencesKey("last_sync_message")
+        val profileUpdatedAt = longPreferencesKey("profile_updated_at")
+        val lastAccountId = stringPreferencesKey("last_account_id")
         val lastSavedSetId = stringPreferencesKey("last_saved_set_id")
         val lastSavedAt = longPreferencesKey("last_saved_at")
-        val deletedSetIds = stringSetPreferencesKey("deleted_set_ids")
+
+        /* Removed keys stay declared so old installs can be read without
+           crashing and so the values can be erased on sign-out. */
+        val legacyGeminiKey = stringPreferencesKey("gemini_key")
+        val legacyNeonUrl = stringPreferencesKey("neon_url")
+        val legacyNeonEndpoint = stringPreferencesKey("neon_endpoint")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data
@@ -68,27 +67,37 @@ class SettingsRepository(private val context: Context) {
                 language = Lang.normalize(prefs[Keys.language]),
                 dailyGoal = (prefs[Keys.dailyGoal] ?: 30).coerceIn(5, 200),
                 reminders = prefs[Keys.reminders] ?: true,
-                geminiKey = prefs[Keys.geminiKey] ?: BuildConfig.GEMINI_API_KEY,
-                geminiModel = prefs[Keys.geminiModel] ?: BuildConfig.GEMINI_MODEL,
-                neonUrl = prefs[Keys.neonUrl] ?: BuildConfig.NEON_CONNECTION_STRING,
-                neonEndpoint = prefs[Keys.neonEndpoint] ?: BuildConfig.NEON_HTTP_ENDPOINT,
+                serverUrl = prefs[Keys.serverUrl].orEmpty().trim().trimEnd('/'),
                 autoSync = prefs[Keys.autoSync] ?: true,
                 lastSyncAt = prefs[Keys.lastSyncAt] ?: 0L,
                 lastSyncMessage = prefs[Keys.lastSyncMessage] ?: "",
+                profileUpdatedAt = prefs[Keys.profileUpdatedAt] ?: 0L,
+                lastAccountId = prefs[Keys.lastAccountId].orEmpty(),
                 lastSavedSetId = prefs[Keys.lastSavedSetId],
-                lastSavedAt = prefs[Keys.lastSavedAt] ?: 0L,
-                deletedSetIds = prefs[Keys.deletedSetIds].orEmpty()
+                lastSavedAt = prefs[Keys.lastSavedAt] ?: 0L
             )
         }
 
     suspend fun current(): AppSettings = settings.first()
 
+    suspend fun updateServerUrl(url: String) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[Keys.serverUrl] = url.trim().trimEnd('/')
+        }
+    }
+
     suspend fun updateName(name: String) {
-        context.settingsDataStore.edit { it[Keys.name] = name.trim().ifBlank { "Maya" } }
+        context.settingsDataStore.edit {
+            it[Keys.name] = name.trim().ifBlank { "Maya" }
+            it[Keys.profileUpdatedAt] = System.currentTimeMillis()
+        }
     }
 
     suspend fun updateLanguage(language: String) {
-        context.settingsDataStore.edit { it[Keys.language] = Lang.normalize(language) }
+        context.settingsDataStore.edit {
+            it[Keys.language] = Lang.normalize(language)
+            it[Keys.profileUpdatedAt] = System.currentTimeMillis()
+        }
     }
 
     suspend fun updateReminders(enabled: Boolean) {
@@ -96,7 +105,30 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun updateDailyGoal(goal: Int) {
-        context.settingsDataStore.edit { it[Keys.dailyGoal] = goal.coerceIn(5, 200) }
+        context.settingsDataStore.edit {
+            it[Keys.dailyGoal] = goal.coerceIn(5, 200)
+            it[Keys.profileUpdatedAt] = System.currentTimeMillis()
+        }
+    }
+
+    suspend fun updateAutoSync(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.autoSync] = enabled }
+    }
+
+    /** Remembers which account owns the offline cache in Room. */
+    suspend fun setAccountId(id: String) {
+        context.settingsDataStore.edit { it[Keys.lastAccountId] = id.trim() }
+    }
+
+    /** Clears the previous learner's study preferences when accounts switch. */
+    suspend fun resetProfile() {
+        context.settingsDataStore.edit { prefs ->
+            prefs[Keys.name] = "Maya"
+            prefs[Keys.language] = Lang.EN
+            prefs[Keys.dailyGoal] = 30
+            prefs[Keys.reminders] = true
+            prefs.remove(Keys.profileUpdatedAt)
+        }
     }
 
     suspend fun saveProfile(
@@ -110,21 +142,23 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.language] = Lang.normalize(language)
             prefs[Keys.dailyGoal] = dailyGoal.coerceIn(5, 200)
             prefs[Keys.reminders] = reminders
+            prefs[Keys.profileUpdatedAt] = System.currentTimeMillis()
         }
     }
 
-    suspend fun saveAi(geminiKey: String, geminiModel: String) {
+    /** Applies a newer profile pulled from the shared web workspace. */
+    suspend fun applyRemoteProfile(
+        name: String?,
+        language: String?,
+        dailyGoal: Int?,
+        updatedAtMs: Long
+    ) {
+        if (updatedAtMs <= 0L) return
         context.settingsDataStore.edit { prefs ->
-            prefs[Keys.geminiKey] = geminiKey.trim()
-            prefs[Keys.geminiModel] = geminiModel.trim().ifBlank { "gemini-2.5-flash" }
-        }
-    }
-
-    suspend fun saveDatabase(neonUrl: String, neonEndpoint: String, autoSync: Boolean) {
-        context.settingsDataStore.edit { prefs ->
-            prefs[Keys.neonUrl] = neonUrl.trim()
-            prefs[Keys.neonEndpoint] = neonEndpoint.trim()
-            prefs[Keys.autoSync] = autoSync
+            if (!name.isNullOrBlank()) prefs[Keys.name] = name.trim().take(40)
+            if (language != null) prefs[Keys.language] = Lang.normalize(language)
+            if (dailyGoal != null) prefs[Keys.dailyGoal] = dailyGoal.coerceIn(5, 500)
+            prefs[Keys.profileUpdatedAt] = updatedAtMs
         }
     }
 
@@ -133,17 +167,6 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.lastSavedSetId] = setId
             prefs[Keys.lastSavedAt] = System.currentTimeMillis()
         }
-    }
-
-    suspend fun markDeletedSet(setId: String) {
-        context.settingsDataStore.edit { prefs ->
-            val current = prefs[Keys.deletedSetIds].orEmpty()
-            prefs[Keys.deletedSetIds] = current + setId
-        }
-    }
-
-    suspend fun clearDeletedSets() {
-        context.settingsDataStore.edit { prefs -> prefs.remove(Keys.deletedSetIds) }
     }
 
     suspend fun markSynced(message: String) {
@@ -156,6 +179,24 @@ class SettingsRepository(private val context: Context) {
     suspend fun markSyncFailed(message: String) {
         context.settingsDataStore.edit { prefs ->
             prefs[Keys.lastSyncMessage] = message
+        }
+    }
+
+    /** Removes credentials that older APKs cached in app preferences. */
+    suspend fun clearLegacySecrets() {
+        context.settingsDataStore.edit { prefs ->
+            prefs.remove(Keys.legacyGeminiKey)
+            prefs.remove(Keys.legacyNeonUrl)
+            prefs.remove(Keys.legacyNeonEndpoint)
+        }
+    }
+
+    suspend fun clearSyncStatus() {
+        context.settingsDataStore.edit { prefs ->
+            prefs.remove(Keys.lastSyncAt)
+            prefs.remove(Keys.lastSyncMessage)
+            prefs.remove(Keys.lastSavedSetId)
+            prefs.remove(Keys.lastSavedAt)
         }
     }
 }

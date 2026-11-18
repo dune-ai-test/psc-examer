@@ -1,23 +1,9 @@
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
-}
-
-val localProperties = Properties().apply {
-    val file = rootProject.file("local.properties")
-    if (file.exists()) {
-        file.inputStream().use { load(it) }
-    }
-}
-
-fun secret(name: String, fallback: String = ""): String {
-    val value = localProperties.getProperty(name) ?: System.getenv(name) ?: fallback
-    return value.replace("\\", "\\\\").replace("\"", "\\\"")
 }
 
 android {
@@ -28,13 +14,8 @@ android {
         applicationId = "com.padanam.psc"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
-
-        buildConfigField("String", "GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
-        buildConfigField("String", "GEMINI_MODEL", "\"${secret("GEMINI_MODEL", "gemini-2.5-flash")}\"")
-        buildConfigField("String", "NEON_CONNECTION_STRING", "\"${secret("NEON_CONNECTION_STRING")}\"")
-        buildConfigField("String", "NEON_HTTP_ENDPOINT", "\"${secret("NEON_HTTP_ENDPOINT")}\"")
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     buildTypes {
@@ -95,8 +76,6 @@ dependencies {
     implementation(libs.androidx.exifinterface)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.serialization)
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.coil.compose)

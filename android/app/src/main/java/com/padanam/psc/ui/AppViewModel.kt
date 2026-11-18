@@ -8,13 +8,14 @@ import androidx.lifecycle.viewModelScope
 import com.padanam.psc.AppContainer
 import com.padanam.psc.data.local.AttemptEntity
 import com.padanam.psc.data.local.QuestionEntity
+import com.padanam.psc.data.model.ActiveExam
 import com.padanam.psc.data.model.AnswerRecord
 import com.padanam.psc.data.model.QuizMode
 import com.padanam.psc.data.model.SetSummary
 import com.padanam.psc.data.model.SyncOutcome
-import com.padanam.psc.data.model.ActiveExam
 import com.padanam.psc.data.prefs.AppSettings
-import com.padanam.psc.data.remote.ScanException
+import com.padanam.psc.data.remote.ServerApi
+import com.padanam.psc.data.remote.ServerException
 import com.padanam.psc.util.Format
 import com.padanam.psc.work.ReminderScheduler
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +53,19 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         initialValue = AppSettings()
     )
 
+    val session = container.authRepository.session.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), null
+    )
+
+    private val _authReady = MutableStateFlow(false)
+    val authReady = _authReady.asStateFlow()
+
+    private val _authBusy = MutableStateFlow(false)
+    val authBusy = _authBusy.asStateFlow()
+
+    private val _authError = MutableStateFlow("")
+    val authError = _authError.asStateFlow()
+
     val sets = dao.observeSetSummaries().stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
     )
@@ -71,14 +85,14 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 12)
     val events = _events.asSharedFlow()
 
-    private val _aiOp = MutableStateFlow(OperationState())
-    val aiOp = _aiOp.asStateFlow()
-
-    private val _dbOp = MutableStateFlow(OperationState())
-    val dbOp = _dbOp.asStateFlow()
-
     private val _syncOp = MutableStateFlow(OperationState())
     val syncOp = _syncOp.asStateFlow()
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            restoreSession()
+        }
+    }
 
     fun questions(setId: String): Flow<List<QuestionEntity>> = dao.observeQuestions(setId)
 
@@ -90,6 +104,106 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     suspend fun answers(attemptId: String): List<AnswerRecord> = withContext(Dispatchers.IO) {
         val attempt = dao.getAttempt(attemptId) ?: return@withContext emptyList()
         container.attemptRepository.decodeAnswers(attempt)
+    }
+
+    // --------------------------------------------------------------- account
+
+    private suspend fun restoreSession() {
+        try {
+            val stored = container.authRepository.current()
+            if (stored == null) return
+            settingsRepo.setAccountId(stored.user.id)
+            if (stored.expired()) {
+                container.authRepository.clear()
+                return
+            }
+            val base = settingsRepo.current().serverUrl
+            if (base.isBlank()) {
+                container.authRepository.clear()
+                return
+            }
+            try {
+                val user = container.serverApi.session(base, stored.token)
+                container.authRepository.save(stored.token, user, stored.expiresAt)
+            } catch (error: ServerException) {
+                if (error.expired || error.statusCode == 401) {
+                    container.authRepository.clear()
+                }
+                /* A network failure keeps the cached session so the app still
+                   works offline. The next sync will surface a 401. */
+            } catch (_: Exception) {
+                /* Same offline-first behaviour. */
+            }
+        } finally {
+            _authReady.value = true
+        }
+    }
+
+    fun signIn(serverUrl: String, username: String, password: String) {
+        if (_authBusy.value) return
+        val base = ServerApi.normalizeBase(serverUrl)
+        if (base == null) {
+            _authError.value = "Enter the https address of your Padanam site."
+            return
+        }
+        if (username.isBlank() || password.isBlank()) {
+            _authError.value = "Enter your username and password."
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _authBusy.value = true
+            _authError.value = ""
+            try {
+                val result = container.serverApi.login(base, username, password)
+                val previous = container.authRepository.current()
+                val lastAccount = settingsRepo.current().lastAccountId
+                val switched = (previous != null && previous.user.id != result.user.id) ||
+                    (lastAccount.isNotBlank() && lastAccount != result.user.id)
+                if (switched) {
+                    /* Never let one account see another account's cached library. */
+                    dao.resetLibrary()
+                    container.examStore.clear()
+                    container.scanSession.clear()
+                    settingsRepo.clearSyncStatus()
+                    settingsRepo.resetProfile()
+                }
+                settingsRepo.updateServerUrl(base)
+                settingsRepo.setAccountId(result.user.id)
+                settingsRepo.clearLegacySecrets()
+                container.authRepository.save(result.token, result.user, result.expiresAt)
+                _authError.value = ""
+                emit(UiEvent("Signed in as ${result.user.label}."))
+                syncInBackground()
+            } catch (error: ServerException) {
+                _authError.value = error.message ?: "Sign-in failed."
+            } catch (error: Exception) {
+                _authError.value = error.message ?: "Sign-in failed. Check your connection."
+            } finally {
+                _authBusy.value = false
+            }
+        }
+    }
+
+    fun signOut() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = container.authRepository.current()
+            val base = settingsRepo.current().serverUrl
+            if (current != null && base.isNotBlank()) {
+                container.serverApi.logout(base, current.token)
+            }
+            container.authRepository.clear()
+            container.examStore.clear()
+            container.scanSession.clear()
+            dao.resetLibrary()
+            settingsRepo.clearSyncStatus()
+            _syncOp.value = OperationState()
+            emit(UiEvent("Signed out. This device's library was cleared."))
+        }
+    }
+
+    fun clearAuthError() {
+        _authError.value = ""
     }
 
     // ------------------------------------------------------------- exam flow
@@ -141,44 +255,45 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
 
     suspend fun abandonExam() = container.examStore.clear()
 
-    // ------------------------------------------------------------ library
-
-    fun deleteSet(setId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            libraryRepo.deleteSet(setId)
-            settingsRepo.markDeletedSet(setId)
-            val active = runCatching { container.examStore.activeExam.first() }.getOrNull()
-            if (active?.setId == setId) container.examStore.clear()
-            val current = runCatching { settingsRepo.current() }.getOrNull()
-            emit(UiEvent("Set deleted."))
-            if (current != null && current.autoSync && current.neonConfigured) {
-                val outcome = container.syncRepository.sync(current)
-                reportSync(outcome, silentSuccess = true)
-            }
-        }
-    }
+    // ------------------------------------------------------------- library
 
     fun renameSet(setId: String, title: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                emit(UiEvent("Only the administrator can rename sets.", error = true))
+                return@launch
+            }
             libraryRepo.renameSet(setId, title)
             val active = runCatching { container.examStore.activeExam.first() }.getOrNull()
             if (active?.setId == setId) {
                 container.examStore.save(active.copy(title = title.trim().take(80)))
             }
             emit(UiEvent("Set renamed."))
+            syncInBackground()
         }
     }
 
     fun seedDemo() {
         viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                emit(UiEvent("Only the administrator can add demo sets.", error = true))
+                return@launch
+            }
             runCatching { libraryRepo.seedDemo() }
-                .onSuccess { emit(UiEvent("Demo set added — 10 bilingual questions.")) }
+                .onSuccess {
+                    emit(UiEvent("Demo set added — 10 bilingual questions."))
+                    syncInBackground()
+                }
                 .onFailure { emit(UiEvent(it.message ?: "Couldn't add the demo set.", error = true)) }
         }
     }
 
     fun exportLibrary() {
         viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                emit(UiEvent("Only the administrator can export the library.", error = true))
+                return@launch
+            }
             runCatching {
                 val json = libraryRepo.exportJson()
                 val folder = File(container.appContext.cacheDir, "exports").apply { mkdirs() }
@@ -215,23 +330,6 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         )
     }
 
-    fun resetLibrary(clearNeon: Boolean) {
-        viewModelScope.launch(Dispatchers.IO) {
-            container.examStore.clear()
-            dao.resetLibrary()
-            runCatching { settingsRepo.clearDeletedSets() }
-            val current = runCatching { settingsRepo.current() }.getOrNull()
-            if (clearNeon && current != null && current.neonConfigured) {
-                val outcome = container.syncRepository.clearRemote(current)
-                if (!outcome.ok) {
-                    emit(UiEvent("Local library cleared. Neon: ${outcome.message}", error = true))
-                    return@launch
-                }
-            }
-            emit(UiEvent("Library cleared."))
-        }
-    }
-
     // ------------------------------------------------------------- settings
 
     fun saveProfile(name: String, language: String, dailyGoal: Int, reminders: Boolean) {
@@ -239,12 +337,14 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             settingsRepo.saveProfile(name, language, dailyGoal, reminders)
             ReminderScheduler.schedule(container.appContext, reminders)
             emit(UiEvent("Profile saved."))
+            syncInBackground()
         }
     }
 
     fun setLanguage(language: String) {
         viewModelScope.launch(Dispatchers.IO) {
             settingsRepo.updateLanguage(language)
+            syncInBackground()
         }
     }
 
@@ -259,67 +359,87 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     fun setDailyGoal(goal: Int) {
         viewModelScope.launch(Dispatchers.IO) {
             settingsRepo.updateDailyGoal(goal)
+            syncInBackground()
         }
     }
 
-    fun saveAi(geminiKey: String, geminiModel: String) {
+    fun setAutoSync(enabled: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
-            settingsRepo.saveAi(geminiKey, geminiModel)
-            emit(UiEvent("Gemini settings saved."))
+            settingsRepo.updateAutoSync(enabled)
+            emit(UiEvent(if (enabled) "Auto-sync on." else "Auto-sync off."))
+            if (enabled) syncInBackground()
         }
     }
 
-    fun saveDatabase(neonUrl: String, neonEndpoint: String, autoSync: Boolean) {
+    /** Saves the deployed Padanam site used for /api/auth, /api/sync and /api/scan. */
+    fun saveServer(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            settingsRepo.saveDatabase(neonUrl, neonEndpoint, autoSync)
-            emit(UiEvent("Neon settings saved."))
-        }
-    }
-
-    fun testGemini(geminiKey: String, geminiModel: String) {
-        if (_aiOp.value.busy) return
-        viewModelScope.launch(Dispatchers.IO) {
-            _aiOp.value = OperationState(busy = true, message = "Checking key…")
-            _aiOp.value = try {
-                val message = container.geminiRepository.testKey(geminiKey, geminiModel)
-                OperationState(message = message, success = true)
-            } catch (error: ScanException) {
-                OperationState(message = error.message ?: "Gemini test failed.", success = false)
-            } catch (error: Exception) {
-                OperationState(message = error.message ?: "Gemini test failed.", success = false)
+            val base = ServerApi.normalizeBase(url)
+            if (base == null) {
+                _syncOp.value = OperationState(
+                    message = "Enter the https address of your Padanam site.",
+                    success = false
+                )
+                return@launch
             }
+            settingsRepo.updateServerUrl(base)
+            emit(UiEvent("Server address saved."))
+            if (container.authRepository.current() != null) syncNow()
         }
     }
 
-    fun testNeon(url: String, endpoint: String) {
-        if (_dbOp.value.busy) return
-        viewModelScope.launch(Dispatchers.IO) {
-            _dbOp.value = OperationState(busy = true, message = "Connecting to Neon…")
-            _dbOp.value = try {
-                val message = container.neonRepository.testConnection(url, endpoint)
-                OperationState(message = message, success = true)
-            } catch (error: Exception) {
-                OperationState(message = error.message ?: "Neon test failed.", success = false)
-            }
-        }
-    }
+    // ---------------------------------------------------------------- sync
 
     fun syncNow(silent: Boolean = false) {
         if (_syncOp.value.busy) return
         viewModelScope.launch(Dispatchers.IO) {
-            val current = runCatching { settingsRepo.current() }.getOrNull()
-            if (current == null || !current.neonConfigured) {
+            val current = container.authRepository.current()
+            if (current == null) {
                 if (!silent) {
                     _syncOp.value = OperationState(
-                        message = "Add your Neon connection string in Settings first.",
+                        message = "Sign in to sync your account.",
                         success = false
                     )
                 }
                 return@launch
             }
-            _syncOp.value = OperationState(busy = true, message = "Syncing with Neon…")
-            val outcome = container.syncRepository.sync(current)
+            val settings = settingsRepo.current()
+            if (settings.serverUrl.isBlank()) {
+                if (!silent) {
+                    _syncOp.value = OperationState(
+                        message = "Add the address of your Padanam site in Settings first.",
+                        success = false
+                    )
+                }
+                return@launch
+            }
+            _syncOp.value = OperationState(busy = true, message = "Syncing with your account…")
+            val outcome = container.cloudSyncRepository.sync(
+                settings.serverUrl,
+                current,
+                settings
+            )
             reportSync(outcome, silent)
+        }
+    }
+
+    /** Fire-and-forget sync used after a scan, an attempt or a profile edit. */
+    fun syncInBackground() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val settings = settingsRepo.current()
+            if (!settings.autoSync) return@launch
+            val current = container.authRepository.current() ?: return@launch
+            if (settings.serverUrl.isBlank()) return@launch
+            val outcome = container.cloudSyncRepository.sync(
+                settings.serverUrl,
+                current,
+                settings
+            )
+            if (outcome.ok) {
+                settingsRepo.markSynced(outcome.message)
+            } else {
+                settingsRepo.markSyncFailed(outcome.message)
+            }
         }
     }
 
@@ -335,13 +455,8 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun clearAiStatus() {
-        _aiOp.value = OperationState()
-    }
-
-    fun clearDbStatus() {
-        _dbOp.value = OperationState()
-    }
+    private suspend fun isAdmin(): Boolean =
+        container.authRepository.current()?.user?.isAdmin == true
 
     fun emit(event: UiEvent) {
         _events.tryEmit(event)
