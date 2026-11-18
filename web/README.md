@@ -180,10 +180,12 @@ bypasses `/api/*`, so account and sync requests always reach the network.
   English and Malayalam versions.
 - **Scanning** — photos are resized in the browser (max 1600 px, JPEG) and sent
   to Gemini, a custom OpenAI-compatible endpoint, or the optional Cloudflare
-  Pages proxy. Nothing is saved until **Save to library**. Until the selected
-  provider is configured, the sample extraction demonstrates the flow.
-  **Fetch models** loads the live catalog from Gemini, the custom endpoint’s
-  `/models` route, or the Pages `/api/models` Function.
+  Pages proxy. Nothing is saved until you choose **Create a new set** or
+  **Save into** an existing set; appending keeps that set’s title, subject and
+  previous questions. Until the selected provider is configured, the sample
+  extraction demonstrates the flow. **Fetch models** loads the live catalog from
+  Gemini, the custom endpoint’s `/models` route, or the Pages `/api/models`
+  Function.
 - **Exams** — timed mocks with an absolute deadline (the timer keeps running if
   you leave), untimed practice, question palette, flags, keyboard shortcuts and
   auto-submit at expiry. Attempts store question snapshots, so past results are

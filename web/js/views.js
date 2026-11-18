@@ -27,7 +27,8 @@
     progress: 0,
     title: '',
     subject: '',
-    language: 'both'
+    language: 'both',
+    targetSetId: ''
   };
 
   var views = A.views = {};
@@ -740,6 +741,36 @@
     { key: 'done', label: 'Ready to review' }
   ];
 
+  function scanTargetSet() {
+    if (!scan.targetSetId) return null;
+    var set = A.getSet(scan.targetSetId);
+    if (!set) scan.targetSetId = '';
+    return set || null;
+  }
+
+  function scanTargetField(selectId) {
+    if (!A.state.sets.length) return '';
+    var target = scanTargetSet();
+    var options = A.state.sets.slice()
+      .sort(function (a, b) { return String(a.title).localeCompare(String(b.title)); })
+      .map(function (set) {
+        return '<option value="' + e(set.id) + '"' + (target && target.id === set.id ? ' selected' : '') + '>' +
+          e(set.title) + ' · ' + e(set.subject) + ' · ' + A.plural(set.questions.length, 'question') +
+        '</option>';
+      }).join('');
+
+    return '<div class="field">' +
+      '<label class="field-label" for="' + e(selectId) + '">Save into</label>' +
+      '<select class="select" id="' + e(selectId) + '" data-scan-field="targetSetId"' + (scan.busy ? ' disabled' : '') + '>' +
+        '<option value="">Create a new set</option>' +
+        '<optgroup label="Add to an existing set">' + options + '</optgroup>' +
+      '</select>' +
+      '<span class="field-hint">' + (target
+        ? 'The extracted questions will be appended to <b>' + e(target.title) + '</b>. Its title and subject stay unchanged.'
+        : 'Keep this on “Create a new set”, or choose an existing topic to continue it.') + '</span>' +
+    '</div>';
+  }
+
   views.scan = function () {
     var settings = A.state.settings;
     var provider = A.gemini.provider(settings);
@@ -747,6 +778,7 @@
     var images = scan.images;
     var busy = scan.busy || scan.adding > 0;
     var result = scan.result;
+    var target = scanTargetSet();
     var titleValue = scan.title || (result ? result.title : '');
     var subjectValue = scan.subject || (result ? result.subject : 'General Knowledge');
     var language = scan.language || 'both';
@@ -812,7 +844,7 @@
         : '<div class="key-state is-missing"><span class="dot"></span><span>' + e(provider.short) + ' not configured</span><a href="#/settings">Set up</a></div>';
 
     return pageHead('Scan & import', 'Turn a paper into a question set',
-      'Photograph a previous PSC paper. ' + e(provider.label) + ' extracts the questions; you review and keep them in your local library.',
+      'Photograph a previous PSC paper. ' + e(provider.label) + ' extracts the questions; review them, then save as a new set or continue an existing topic.',
       '<a class="btn btn-ghost" href="#/library">' + icon('book') + ' Library</a>') +
 
       '<div class="scan-grid">' +
@@ -823,15 +855,20 @@
             drop +
             previews +
             '<div class="scan-form">' +
-              '<div class="field">' +
-                '<label class="field-label" for="scanTitle">Set title <span class="faint">(optional)</span></label>' +
-                '<input class="input" id="scanTitle" data-scan-field="title" maxlength="90" placeholder="e.g. PSC LD Clerk — 2023" value="' + e(titleValue) + '">' +
-              '</div>' +
+              (A.state.sets.length ? '<div style="margin-bottom:14px">' + scanTargetField('scanTarget') + '</div>' : '') +
+              (target
+                ? ''
+                : '<div class="field">' +
+                    '<label class="field-label" for="scanTitle">Set title <span class="faint">(optional)</span></label>' +
+                    '<input class="input" id="scanTitle" data-scan-field="title" maxlength="90" placeholder="e.g. PSC LD Clerk — 2023" value="' + e(titleValue) + '">' +
+                  '</div>') +
               '<div class="form-grid" style="margin-top:12px">' +
-                '<div class="field">' +
-                  '<label class="field-label" for="scanSubject">Subject</label>' +
-                  '<select class="select" id="scanSubject" data-scan-field="subject">' + subjectOptions(subjectValue) + '</select>' +
-                '</div>' +
+                (target
+                  ? ''
+                  : '<div class="field">' +
+                      '<label class="field-label" for="scanSubject">Subject</label>' +
+                      '<select class="select" id="scanSubject" data-scan-field="subject">' + subjectOptions(subjectValue) + '</select>' +
+                    '</div>') +
                 '<div class="field">' +
                   '<label class="field-label" for="scanLanguage">Paper language</label>' +
                   '<select class="select" id="scanLanguage" data-scan-field="language">' +
@@ -849,7 +886,7 @@
           '<div class="card scan-aside-card">' +
             '<h3>' + icon('spark') + ' ' + e(provider.label) + ' scanning</h3>' +
             keyState +
-            '<p>Questions come back as a draft set. Nothing is saved until you press <b>Save to library</b>.</p>' +
+            '<p>Questions come back as a draft. Nothing is saved until you press <b>Save to library</b> or append them to an existing set.</p>' +
             (provider.id === 'gemini'
               ? '<a class="link" style="display:inline-block;margin-top:10px;font-size:10.5px" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a free API key ↗</a>'
               : '<a class="link" style="display:inline-block;margin-top:10px;font-size:10.5px" href="#/settings">Open provider settings →</a>') +
@@ -859,7 +896,7 @@
             '<ol class="scan-steps">' +
               '<li><span class="step-num">1</span><p><strong>Add pages.</strong> Photograph the questions — answers are optional; the model can solve them.</p></li>' +
               '<li><span class="step-num">2</span><p><strong>Extract.</strong> Bilingual questions, options and explanations are pulled into a draft set.</p></li>' +
-              '<li><span class="step-num">3</span><p><strong>Review & save.</strong> Edit anything that looks wrong, then keep the set in your library.</p></li>' +
+              '<li><span class="step-num">3</span><p><strong>Review & save.</strong> Keep a new set, or append the questions to an existing topic so its library continues to grow.</p></li>' +
             '</ol>' +
           '</div>' +
           '<div class="card scan-aside-card">' +
@@ -916,6 +953,7 @@
     if (!scan.result) return '';
 
     var result = scan.result;
+    var target = scanTargetSet();
     var bilingual = result.questions.filter(function (q) { return !!q.ml; }).length;
     var preview = result.questions.slice(0, 3).map(function (q, index) {
       var v = A.questionFor(q, A.state.profile.language);
@@ -933,17 +971,22 @@
     return '<section class="card scan-status scan-result">' +
       '<div class="scan-status-head">' +
         '<span class="empty-icon" style="width:36px;height:36px;border-radius:11px;margin:0">' + icon('check') + '</span>' +
-        '<div><h3>Draft set ready</h3><p>Nothing is saved yet. Check the questions, then add them to your library.</p></div>' +
+        '<div><h3>Draft ready</h3><p>' + (target
+          ? 'Nothing is saved yet. These questions will be appended to <b>' + e(target.title) + '</b>.'
+          : 'Nothing is saved yet. Check the questions, then add them to your library.') + '</p></div>' +
       '</div>' +
       '<div class="scan-result-count"><strong>' + result.questions.length + '</strong><span>questions extracted' + (bilingual ? ' · ' + bilingual + ' bilingual' : '') + '</span></div>' +
-      '<div class="tag-row" style="margin-top:8px"><span class="chip chip--indigo">' + e(result.subject || 'General Knowledge') + '</span><span class="chip chip--success">Draft</span></div>' +
+      '<div class="tag-row" style="margin-top:8px"><span class="chip chip--indigo">' + e(target ? target.subject : (result.subject || 'General Knowledge')) + '</span>' +
+        (target ? '<span class="chip">→ ' + e(target.title) + '</span>' : '') +
+        '<span class="chip chip--success">Draft</span></div>' +
+      (A.state.sets.length ? '<div style="margin-top:14px">' + scanTargetField('scanResultTarget') + '</div>' : '') +
       '<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">' + preview + '</div>' +
       (result.questions.length > 3
-        ? '<p class="field-hint" style="margin-top:8px">+ ' + (result.questions.length - 3) + ' more will be saved.</p>'
+        ? '<p class="field-hint" style="margin-top:8px">+ ' + (result.questions.length - 3) + (target ? ' more will be added.' : ' more will be saved.') + '</p>'
         : '') +
       '<div class="scan-result-actions">' +
-        '<button type="button" class="btn btn-primary" data-action="scan-save">' + icon('book') + ' Save to library</button>' +
-        '<button type="button" class="btn btn-ghost" data-action="scan-save" data-start="1">' + icon('play') + ' Save & start test</button>' +
+        '<button type="button" class="btn btn-primary" data-action="scan-save">' + icon('book') + (target ? ' Add to this set' : ' Save to library') + '</button>' +
+        '<button type="button" class="btn btn-ghost" data-action="scan-save" data-start="1">' + icon('play') + (target ? ' Add & start test' : ' Save & start test') + '</button>' +
         '<button type="button" class="btn btn-subtle" data-action="scan-discard">' + icon('trash') + ' Discard</button>' +
       '</div>' +
     '</section>';
@@ -955,6 +998,11 @@
   };
 
   views.scanField = function (name, value) {
+    if (name === 'targetSetId') {
+      scan.targetSetId = value && A.getSet(value) ? String(value) : '';
+      A.refresh();
+      return;
+    }
     if (name === 'title' || name === 'subject' || name === 'language') scan[name] = value;
   };
 
@@ -1003,6 +1051,7 @@
   views.scanRun = async function (demo) {
     if (scan.busy || scan.adding > 0) return;
     var settings = A.state.settings;
+    var target = scanTargetSet();
     var provider = A.gemini.provider(settings);
     if (!demo && provider.id === 'pages' && !A.gemini.proxy().checked) {
       await A.gemini.refreshProxy();
@@ -1059,8 +1108,8 @@
           openaiKey: settings.openaiKey,
           openaiModel: settings.openaiModel,
           language: scan.language || 'both',
-          titleHint: scan.title,
-          subject: scan.subject,
+          titleHint: target ? target.title : scan.title,
+          subject: target ? target.subject : scan.subject,
           images: scan.images,
           onStage: stage
         });
@@ -1077,7 +1126,9 @@
       A.refresh();
       A.toast({
         title: extraction.questions.length + ' questions extracted',
-        message: 'Review the draft, then save it to your library.',
+        message: target
+          ? 'Review the draft, then add it to ' + target.title + '.'
+          : 'Review the draft, then save it to your library.',
         kind: 'success'
       });
     } catch (err) {
@@ -1090,25 +1141,40 @@
 
   views.scanSave = function (start) {
     if (!scan.result || scan.busy) return;
-    var title = String(scan.title || scan.result.title || '').trim() ||
-      ('Scanned paper · ' + A.fmtDateShort(new Date().toISOString()));
-    var subject = scan.subject || scan.result.subject || 'General Knowledge';
-    var set = {
-      id: A.uid('set'),
-      title: title,
-      titleMl: '',
-      subject: subject,
-      source: 'scan',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      questions: scan.result.questions.map(function (q) {
-        q.id = q.id || A.uid('q');
-        return q;
-      })
-    };
-    A.addSet(set);
-    var count = set.questions.length;
-    var setId = set.id;
+    var target = scanTargetSet();
+    var now = new Date().toISOString();
+    var questions = scan.result.questions.map(function (q) {
+      q.id = A.uid('q');
+      return q;
+    });
+    var setId;
+    var count = questions.length;
+    var appendedTo = '';
+
+    if (target) {
+      target.questions = target.questions.concat(questions);
+      target.updatedAt = now;
+      A.save();
+      if (A.sync && typeof A.sync.schedule === 'function') A.sync.schedule();
+      setId = target.id;
+      appendedTo = target.title;
+    } else {
+      var title = String(scan.title || scan.result.title || '').trim() ||
+        ('Scanned paper · ' + A.fmtDateShort(now));
+      var subject = scan.subject || scan.result.subject || 'General Knowledge';
+      var set = {
+        id: A.uid('set'),
+        title: title,
+        titleMl: '',
+        subject: subject,
+        source: 'scan',
+        createdAt: now,
+        updatedAt: now,
+        questions: questions
+      };
+      A.addSet(set);
+      setId = set.id;
+    }
 
     scan.images = [];
     scan.busy = false;
@@ -1120,9 +1186,10 @@
     scan.title = '';
     scan.subject = '';
     scan.language = 'both';
+    scan.targetSetId = '';
 
     A.toast({
-      title: 'Saved to your library',
+      title: appendedTo ? 'Added to ' + appendedTo : 'Saved to your library',
       message: count + ' questions added' + (start ? '. Opening exam setup…' : '.'),
       kind: 'success'
     });
@@ -1140,6 +1207,7 @@
     scan.title = '';
     scan.subject = '';
     scan.language = 'both';
+    scan.targetSetId = '';
     A.refresh();
   };
 

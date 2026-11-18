@@ -4,7 +4,7 @@
    ========================================================= */
 'use strict';
 
-var CACHE = 'padanam-web-v10';
+var CACHE = 'padanam-web-v11';
 var ASSETS = [
   './',
   './index.html',
