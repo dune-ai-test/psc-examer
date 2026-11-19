@@ -36,6 +36,15 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # Android refuses an update signed by a different key. Without this,
+      # every ephemeral runner generates a fresh debug keystore and the user
+      # has to uninstall the previous APK before every install.
+      - name: Cache the debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: padanam-debug-keystore-v1
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
