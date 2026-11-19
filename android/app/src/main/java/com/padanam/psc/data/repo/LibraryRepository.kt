@@ -7,14 +7,10 @@ import com.padanam.psc.data.model.AiOption
 import com.padanam.psc.data.model.AiQuestion
 import com.padanam.psc.data.model.AiScanResult
 import com.padanam.psc.data.model.ScanDestination
+import com.padanam.psc.data.prefs.AppSettings
 import com.padanam.psc.util.AppJson
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import java.time.Instant
 import java.util.UUID
 
 data class AppendScanResult(val added: Int, val title: String)
@@ -101,14 +97,16 @@ class LibraryRepository(private val dao: AppDao) {
 
     suspend fun titleOf(setId: String): String = dao.getSet(setId)?.title.orEmpty()
 
-    suspend fun renameSet(setId: String, newTitle: String) {
+    suspend fun renameSet(setId: String, newTitle: String, newTitleMl: String) {
         val set = dao.getSet(setId) ?: return
         val clean = newTitle.trim().take(80)
-        if (clean.isBlank() || clean == set.title) return
+        val cleanMl = newTitleMl.trim().take(120)
+        if (clean.isBlank() || (clean == set.title && cleanMl == set.titleMl)) return
         // Keep the set newer than the cloud copy so the next sync pushes it.
         dao.updateSet(
             set.copy(
                 title = clean,
+                titleMl = cleanMl,
                 updatedAt = System.currentTimeMillis(),
                 synced = false
             )
@@ -127,84 +125,26 @@ class LibraryRepository(private val dao: AppDao) {
         return saveScan(result, source = DEMO_SOURCE, imagePaths = emptyList())
     }
 
-    suspend fun exportJson(): String {
-        val sets = dao.setsOnce()
-        val questions = dao.allQuestionsOnce()
-        val attempts = dao.allAttemptsOnce()
-        val questionsBySet = questions.groupBy { it.setId }
-        val attemptsBySet = attempts.groupBy { it.setId }
+    suspend fun exportJson(profile: AppSettings): String {
+        return WebBackup.encode(
+            sets = dao.setsOnce(),
+            questions = dao.allQuestionsOnce(),
+            attempts = dao.allAttemptsOnce(),
+            profile = profile
+        )
+    }
 
-        val root = buildJsonObject {
-            put("app", "Padanam")
-            put("version", 1)
-            put("exportedAt", Instant.now().toString())
-            put(
-                "sets",
-                buildJsonArray {
-                    sets.forEach { set ->
-                        add(
-                            buildJsonObject {
-                                put("id", set.id)
-                                put("title", set.title)
-                                put("subject", set.subject)
-                                put("createdAt", set.createdAt)
-                                put("source", set.source)
-                                put("imageUris", set.imageUrisJson ?: "")
-                                put(
-                                    "questions",
-                                    buildJsonArray {
-                                        questionsBySet[set.id].orEmpty().sortedBy { it.order }.forEach { q ->
-                                            add(q.toJson())
-                                        }
-                                    }
-                                )
-                                put(
-                                    "attempts",
-                                    buildJsonArray {
-                                        attemptsBySet[set.id].orEmpty().forEach { a ->
-                                            add(
-                                                buildJsonObject {
-                                                    put("id", a.id)
-                                                    put("mode", a.mode)
-                                                    put("total", a.total)
-                                                    put("correct", a.correct)
-                                                    put("wrong", a.wrong)
-                                                    put("skipped", a.skipped)
-                                                    put("scorePercent", a.scorePercent)
-                                                    put("durationSeconds", a.durationSeconds)
-                                                    put("startedAt", a.startedAt)
-                                                    put("completedAt", a.completedAt)
-                                                    put("answers", AppJson.parseToJsonElement(a.answersJson))
-                                                }
-                                            )
-                                        }
-                                    }
-                                )
-                            }
-                        )
-                    }
-                }
-            )
-            put(
-                "orphanAttempts",
-                buildJsonArray {
-                    attempts.filter { it.setId == null }.forEach { a ->
-                        add(
-                            buildJsonObject {
-                                put("id", a.id)
-                                put("title", a.setTitle)
-                                put("subject", a.subject)
-                                put("mode", a.mode)
-                                put("scorePercent", a.scorePercent)
-                                put("completedAt", a.completedAt)
-                                put("answers", AppJson.parseToJsonElement(a.answersJson))
-                            }
-                        )
-                    }
-                }
-            )
-        }
-        return AppJson.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), root)
+    /**
+     * Replaces the offline library with a web backup or an older Android
+     * export. Imported rows are marked unsynced so the next cloud sync pushes
+     * the restored library to the account workspace.
+     */
+    suspend fun replaceWith(backup: BackupImport) {
+        dao.replaceLibrary(
+            sets = backup.sets.map { it.first.copy(synced = false) },
+            questions = backup.sets.flatMap { it.second }.map { it.copy(synced = false) },
+            attempts = backup.attempts.map { it.copy(synced = false) }
+        )
     }
 
     private fun uniqueTitle(base: String, existing: Set<String>): String {
@@ -221,7 +161,8 @@ class LibraryRepository(private val dao: AppDao) {
         createdAt: Long,
         confidenceFallback: Int
     ): QuestionEntity {
-        val safeOptions = options.take(4)
+        val safeOptions = options.take(6)
+        val optionCount = safeOptions.size.coerceIn(2, 6)
         return QuestionEntity(
             id = "q_${UUID.randomUUID()}",
             setId = setId,
@@ -232,11 +173,17 @@ class LibraryRepository(private val dao: AppDao) {
             optionBEn = safeOptions.textAt(1, true),
             optionCEn = safeOptions.textAt(2, true),
             optionDEn = safeOptions.textAt(3, true),
+            optionEEn = safeOptions.textAt(4, true),
+            optionFEn = safeOptions.textAt(5, true),
             optionAMl = safeOptions.textAt(0, false),
             optionBMl = safeOptions.textAt(1, false),
             optionCMl = safeOptions.textAt(2, false),
             optionDMl = safeOptions.textAt(3, false),
-            correctOption = correctOption.uppercase().take(1).takeIf { it in setOf("A", "B", "C", "D") } ?: "A",
+            optionEMl = safeOptions.textAt(4, false),
+            optionFMl = safeOptions.textAt(5, false),
+            optionCount = optionCount,
+            correctOption = correctOption.uppercase().take(1)
+                .takeIf { it in setOf("A", "B", "C", "D", "E", "F") } ?: "A",
             explanationEn = explanationEn.ifBlank { explanationMl },
             explanationMl = explanationMl,
             topic = topic.ifBlank { "General" },
@@ -253,22 +200,6 @@ class LibraryRepository(private val dao: AppDao) {
         } else {
             option.textMl
         }
-    }
-
-    private fun QuestionEntity.toJson() = buildJsonObject {
-        put("id", id)
-        put("order", order + 1)
-        put("questionEn", questionEn)
-        put("questionMl", questionMl)
-        put("optionsEn", JsonArray(listOf(optionAEn, optionBEn, optionCEn, optionDEn).map { kotlinx.serialization.json.JsonPrimitive(it) }))
-        put("optionsMl", JsonArray(listOf(optionAMl, optionBMl, optionCMl, optionDMl).map { kotlinx.serialization.json.JsonPrimitive(it) }))
-        put("correctOption", correctOption)
-        put("explanationEn", explanationEn)
-        put("explanationMl", explanationMl)
-        put("topic", topic)
-        put("difficulty", difficulty)
-        put("confidence", confidence)
-        put("createdAt", createdAt)
     }
 
     private fun demoQuestions(): List<AiQuestion> = listOf(

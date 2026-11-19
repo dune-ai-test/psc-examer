@@ -94,6 +94,7 @@ fun LibraryScreen(
     val filtered = sets.filter { summary ->
         val matchesQuery = query.isBlank() ||
             summary.title.contains(query, ignoreCase = true) ||
+            summary.set.titleMl.contains(query, ignoreCase = true) ||
             summary.subject.contains(query, ignoreCase = true)
         val matchesFilter = when (filter) {
             FILTER_SCANNED -> summary.set.source != "demo"
@@ -227,7 +228,7 @@ fun LibraryScreen(
                         EmptyStateCard(
                             icon = Icons.Rounded.DocumentScanner,
                             title = "No question sets yet",
-                            body = "Scan a photo of a question sheet and every question with its four options is saved here automatically.",
+                            body = "Scan a photo of a question sheet and every question with its options is saved here automatically.",
                             primaryLabel = "Scan your first question",
                             onPrimary = onScan,
                             primaryIcon = Icons.Rounded.DocumentScanner,
@@ -387,7 +388,7 @@ private fun ScanCard(
             )
         }
         Text(
-            "Photograph a question.\nGet all four options.",
+            "Photograph a question.\nGet every option.",
             style = AppType.HeroTitle,
             color = SurfaceWhite
         )

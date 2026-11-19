@@ -1,6 +1,7 @@
 package com.padanam.psc.ui
 
 import android.content.Intent
+import android.net.Uri
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -16,6 +17,7 @@ import com.padanam.psc.data.model.SyncOutcome
 import com.padanam.psc.data.prefs.AppSettings
 import com.padanam.psc.data.remote.ServerApi
 import com.padanam.psc.data.remote.ServerException
+import com.padanam.psc.data.repo.WebBackup
 import com.padanam.psc.util.Format
 import com.padanam.psc.work.ReminderScheduler
 import kotlinx.coroutines.Dispatchers
@@ -87,6 +89,9 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
 
     private val _syncOp = MutableStateFlow(OperationState())
     val syncOp = _syncOp.asStateFlow()
+
+    private val _backupOp = MutableStateFlow(OperationState())
+    val backupOp = _backupOp.asStateFlow()
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -257,18 +262,18 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
 
     // ------------------------------------------------------------- library
 
-    fun renameSet(setId: String, title: String) {
+    fun renameSet(setId: String, title: String, titleMl: String = "") {
         viewModelScope.launch(Dispatchers.IO) {
             if (!isAdmin()) {
                 emit(UiEvent("Only the administrator can rename sets.", error = true))
                 return@launch
             }
-            libraryRepo.renameSet(setId, title)
+            libraryRepo.renameSet(setId, title, titleMl)
             val active = runCatching { container.examStore.activeExam.first() }.getOrNull()
             if (active?.setId == setId) {
                 container.examStore.save(active.copy(title = title.trim().take(80)))
             }
-            emit(UiEvent("Set renamed."))
+            emit(UiEvent("Set details saved."))
             syncInBackground()
         }
     }
@@ -295,9 +300,9 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
                 return@launch
             }
             runCatching {
-                val json = libraryRepo.exportJson()
+                val json = libraryRepo.exportJson(settingsRepo.current())
                 val folder = File(container.appContext.cacheDir, "exports").apply { mkdirs() }
-                val file = File(folder, "padanam-${Format.exportStamp()}.json")
+                val file = File(folder, "padanam-backup-${Format.exportStamp()}.json")
                 file.writeText(json)
                 val uri = FileProvider.getUriForFile(
                     container.appContext,
@@ -307,14 +312,78 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "application/json"
                     putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_SUBJECT, "Padanam library export")
+                    putExtra(Intent.EXTRA_SUBJECT, "Padanam library backup")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                val chooser = Intent.createChooser(send, "Export Padanam library")
+                val chooser = Intent.createChooser(send, "Export Padanam backup")
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 container.appContext.startActivity(chooser)
             }.onFailure {
                 emit(UiEvent(it.message ?: "Couldn't build the export.", error = true))
+            }
+        }
+    }
+
+    /**
+     * Restores a web backup or an older Android export. The file replaces the
+     * offline library and profile, then syncs the restored copy to the account
+     * workspace.
+     */
+    fun importLibrary(uri: Uri) {
+        if (_backupOp.value.busy) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                _backupOp.value = OperationState(
+                    message = "Only the administrator can import a backup.",
+                    success = false
+                )
+                emit(UiEvent("Only the administrator can import a backup.", error = true))
+                return@launch
+            }
+            _backupOp.value = OperationState(busy = true, message = "Reading backup…")
+            runCatching {
+                val text = container.appContext.contentResolver.openInputStream(uri)
+                    ?.bufferedReader()
+                    ?.use { it.readText() }
+                    ?: error("Couldn't open the selected file.")
+                if (text.isBlank()) error("That file is empty.")
+                val backup = WebBackup.decode(text)
+                    ?: error("That file is not a Padanam backup.")
+
+                libraryRepo.replaceWith(backup)
+
+                val current = settingsRepo.current()
+                val profile = backup.profile
+                if (profile != null) {
+                    settingsRepo.saveProfile(
+                        name = profile.name.ifBlank { current.name },
+                        target = profile.target,
+                        examDate = profile.examDate,
+                        language = profile.language ?: current.language,
+                        dailyGoal = profile.dailyGoal ?: current.dailyGoal,
+                        reminders = profile.reminders ?: current.reminders
+                    )
+                    ReminderScheduler.schedule(
+                        container.appContext,
+                        profile.reminders ?: current.reminders
+                    )
+                }
+
+                container.examStore.clear()
+                container.scanSession.clear()
+                backup
+            }.onSuccess { backup ->
+                val message = "Imported ${backup.sets.size} " +
+                    (if (backup.sets.size == 1) "set" else "sets") +
+                    " and ${backup.attempts.size} " +
+                    (if (backup.attempts.size == 1) "attempt" else "attempts") + "."
+                _backupOp.value = OperationState(message = message, success = true)
+                emit(UiEvent(message))
+                syncInBackground()
+            }.onFailure {
+                val message = it.message ?: "Couldn't import that backup."
+                _backupOp.value = OperationState(message = message, success = false)
+                emit(UiEvent(message, error = true))
             }
         }
     }
@@ -332,9 +401,16 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
 
     // ------------------------------------------------------------- settings
 
-    fun saveProfile(name: String, language: String, dailyGoal: Int, reminders: Boolean) {
+    fun saveProfile(
+        name: String,
+        target: String,
+        examDate: String,
+        language: String,
+        dailyGoal: Int,
+        reminders: Boolean
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
-            settingsRepo.saveProfile(name, language, dailyGoal, reminders)
+            settingsRepo.saveProfile(name, target, examDate, language, dailyGoal, reminders)
             ReminderScheduler.schedule(container.appContext, reminders)
             emit(UiEvent("Profile saved."))
             syncInBackground()

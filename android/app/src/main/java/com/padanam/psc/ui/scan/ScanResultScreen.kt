@@ -318,7 +318,7 @@ private fun SavedBanner(
                 if (appended) {
                     "${if (added > 0) added else questionCount} NEW · $questionCount TOTAL · ${subject.uppercase()}"
                 } else {
-                    "$questionCount QUESTION${if (questionCount == 1) "" else "S"} · 4 OPTIONS · ${subject.uppercase()}"
+                    "$questionCount QUESTION${if (questionCount == 1) "" else "S"} · BILINGUAL · ${subject.uppercase()}"
                 },
                 style = AppType.MonoSmall.copy(letterSpacing = 0.2.sp),
                 color = IndigoMuted,

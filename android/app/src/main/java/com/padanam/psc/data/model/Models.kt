@@ -82,8 +82,10 @@ data class AnswerRecord(
     }
 
     companion object {
-        private val letters = listOf("A", "B", "C", "D")
+        private val letters = listOf("A", "B", "C", "D", "E", "F")
         fun letterAt(index: Int): String = letters.getOrElse(index) { "A" }
+        fun isLetter(value: String): Boolean =
+            value.trim().uppercase().take(1) in letters
     }
 }
 

@@ -198,15 +198,15 @@ class ServerApi(
                 sets = root.array("sets").mapNotNull { it as? JsonObject },
                 attempts = root.array("attempts").mapNotNull { it as? JsonObject },
                 profile = root["profile"] as? JsonObject,
-                profileUpdatedMs = root["profileUpdatedMs"]?.let { numberOrNull(it).toLong() } ?: 0L,
-                attemptsClearedMs = root["attemptsClearedMs"]?.let { numberOrNull(it).toLong() } ?: 0L,
-                epochMs = root["epochMs"]?.let { numberOrNull(it).toLong() } ?: 0L,
+                profileUpdatedMs = root["profileUpdatedMs"]?.let { longNumber(it) } ?: 0L,
+                attemptsClearedMs = root["attemptsClearedMs"]?.let { longNumber(it) } ?: 0L,
+                epochMs = root["epochMs"]?.let { longNumber(it) } ?: 0L,
                 tombstones = root.array("tombstones").mapNotNull { element ->
                     (element as? JsonObject)?.let { item ->
                         RemoteTombstone(
                             kind = item.string("kind"),
                             id = item.string("id"),
-                            deletedMs = item["deletedMs"]?.let { numberOrNull(it).toLong() } ?: 0L
+                            deletedMs = item["deletedMs"]?.let { longNumber(it) } ?: 0L
                         )
                     }
                 }
@@ -339,6 +339,14 @@ class ServerApi(
                 ?: element.contentOrNull?.toIntOrNull()
                 ?: 0
             else -> 0
+        }
+
+        /** Epoch milliseconds exceed Int; never round-trip them through numberOrNull. */
+        private fun longNumber(element: JsonElement): Long = when (element) {
+            is JsonPrimitive -> element.longOrNull
+                ?: element.contentOrNull?.toLongOrNull()
+                ?: 0L
+            else -> 0L
         }
     }
 }

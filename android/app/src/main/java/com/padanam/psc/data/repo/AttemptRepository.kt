@@ -18,7 +18,7 @@ class AttemptRepository(private val dao: AppDao) {
             val selected = exam.answers[questionId]
                 ?.uppercase()
                 ?.take(1)
-                ?.takeIf { it in setOf("A", "B", "C", "D") }
+                ?.takeIf { AnswerRecord.isLetter(it) }
             AnswerRecord(
                 questionId = question.id,
                 questionEn = question.questionEn,

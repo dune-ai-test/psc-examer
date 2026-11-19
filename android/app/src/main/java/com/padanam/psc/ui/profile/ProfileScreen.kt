@@ -1,5 +1,8 @@
 package com.padanam.psc.ui.profile
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -77,6 +80,7 @@ import com.padanam.psc.ui.theme.Success
 import com.padanam.psc.ui.theme.SuccessBright
 import com.padanam.psc.ui.theme.SuccessSoft
 import com.padanam.psc.util.Format
+import java.time.LocalDate
 
 @Composable
 fun ProfileScreen(
@@ -92,12 +96,20 @@ fun ProfileScreen(
     val attempts by appVm.attempts.collectAsStateWithLifecycle()
     val questionCount by appVm.questionCount.collectAsStateWithLifecycle()
     val syncOp by appVm.syncOp.collectAsStateWithLifecycle()
+    val backupOp by appVm.backupOp.collectAsStateWithLifecycle()
 
     var editOpen by remember { mutableStateOf(false) }
     var languageOpen by remember { mutableStateOf(false) }
     var goalOpen by remember { mutableStateOf(false) }
     var helpOpen by remember { mutableStateOf(false) }
     var privacyOpen by remember { mutableStateOf(false) }
+    var pendingImport by remember { mutableStateOf<Uri?>(null) }
+
+    val importPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) pendingImport = uri
+    }
 
     val streak = Format.attemptStreak(attempts)
     val languageValue = if (settings.language == Lang.ML) "Malayalam first" else "English first"
@@ -153,6 +165,20 @@ fun ProfileScreen(
                                 settings.name,
                                 style = AppType.SectionTitle.copy(fontSize = 20.sp, lineHeight = 25.sp),
                                 color = Navy,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                settings.target.ifBlank { "Kerala PSC" } +
+                                    settings.examDate.takeIf { it.isNotBlank() }
+                                        ?.let { date ->
+                                            val days = Format.daysUntil(date)
+                                            " · ${Format.examDateLabel(date)}" +
+                                                (days?.takeIf { it >= 0 }?.let { " · ${it}d" } ?: "")
+                                        }
+                                        .orEmpty(),
+                                style = AppType.BodyTiny,
+                                color = InkMuted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -283,6 +309,19 @@ fun ProfileScreen(
                     SettingsRow(label = "Your name", value = settings.name, onClick = { editOpen = true })
                     ThinDivider()
                     SettingsRow(
+                        label = "Exam target",
+                        value = settings.target.ifBlank { "Kerala PSC" },
+                        onClick = { editOpen = true }
+                    )
+                    ThinDivider()
+                    SettingsRow(
+                        label = "Exam date",
+                        value = settings.examDate.takeIf { it.isNotBlank() }
+                            ?.let { Format.examDateLabel(it) } ?: "Not set",
+                        onClick = { editOpen = true }
+                    )
+                    ThinDivider()
+                    SettingsRow(
                         label = "Study reminders",
                         trailing = {
                             PadanamToggle(
@@ -316,6 +355,31 @@ fun ProfileScreen(
                             value = "JSON",
                             onClick = { appVm.exportLibrary() }
                         )
+                        ThinDivider()
+                        SettingsRow(
+                            label = "Import backup",
+                            value = if (backupOp.busy) "Reading…" else "Web or Android",
+                            onClick = {
+                                if (!backupOp.busy) {
+                                    importPicker.launch(
+                                        arrayOf(
+                                            "application/json",
+                                            "text/plain",
+                                            "application/octet-stream"
+                                        )
+                                    )
+                                }
+                            }
+                        )
+                        if (backupOp.message.isNotBlank()) {
+                            ThinDivider()
+                            Text(
+                                backupOp.message,
+                                style = AppType.BodyTiny,
+                                color = if (backupOp.success) Success else InkMuted,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -388,9 +452,48 @@ fun ProfileScreen(
         EditProfileDialog(
             settings = settings,
             onDismiss = { editOpen = false },
-            onSave = { name, language, goal, reminders ->
-                appVm.saveProfile(name, language, goal, reminders)
+            onSave = { name, target, examDate, language, goal, reminders ->
+                appVm.saveProfile(name, target, examDate, language, goal, reminders)
                 editOpen = false
+            }
+        )
+    }
+
+    if (pendingImport != null) {
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            containerColor = SurfaceWhite,
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("Import this backup?", style = AppType.Question, color = Navy) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Importing replaces this phone's library, results and profile with the contents of the file. Your server address and account stay as they are.",
+                        style = AppType.BodySmall,
+                        color = InkMuted
+                    )
+                    Text(
+                        "Both Padanam web backups and older Android exports are accepted.",
+                        style = AppType.BodySmall,
+                        color = InkMuted
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val uri = pendingImport
+                        pendingImport = null
+                        if (uri != null) appVm.importLibrary(uri)
+                    }
+                ) {
+                    Text("Import backup", style = AppType.ButtonSmall, color = Indigo)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImport = null }) {
+                    Text("Cancel", style = AppType.ButtonSmall, color = InkMuted)
+                }
             }
         )
     }
@@ -456,7 +559,7 @@ fun ProfileScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Scan a printed question sheet with all four options visible. The scanner extracts the text, both languages and the correct answer.",
+                        "Scan a printed question sheet with every option visible. The scanner extracts the text, both languages and the correct answer.",
                         style = AppType.BodySmall,
                         color = InkMuted
                     )
@@ -499,7 +602,7 @@ fun ProfileScreen(
                         color = InkMuted
                     )
                     Text(
-                        "API keys are stored in app preferences on this device. Do not share an APK with embedded personal keys.",
+                        "The AI provider key stays in Cloudflare. This phone only holds your signed-in session, which is cleared when you sign out.",
                         style = AppType.BodySmall,
                         color = InkMuted
                     )
@@ -530,12 +633,15 @@ private fun RowScope.ProfileStat(value: String, label: String) {
 private fun EditProfileDialog(
     settings: AppSettings,
     onDismiss: () -> Unit,
-    onSave: (String, String, Int, Boolean) -> Unit
+    onSave: (String, String, String, String, Int, Boolean) -> Unit
 ) {
     var name by remember(settings.name) { mutableStateOf(settings.name) }
+    var target by remember(settings.target) { mutableStateOf(settings.target) }
+    var examDate by remember(settings.examDate) { mutableStateOf(settings.examDate) }
     var language by remember(settings.language) { mutableStateOf(settings.language) }
     var goal by remember(settings.dailyGoal) { mutableIntStateOf(settings.dailyGoal) }
     var reminders by remember(settings.reminders) { mutableStateOf(settings.reminders) }
+    var dateError by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -550,7 +656,7 @@ private fun EditProfileDialog(
         ) {
             Text("Edit profile", style = AppType.Question, color = Navy)
             Text(
-                "Only stored on this phone.",
+                "Saved on this phone and synced to your account.",
                 style = AppType.BodySmall,
                 color = InkMuted
             )
@@ -559,6 +665,22 @@ private fun EditProfileDialog(
                 value = name,
                 onValueChange = { name = it.take(40) },
                 placeholder = "Maya"
+            )
+            AppTextField(
+                label = "Exam target",
+                value = target,
+                onValueChange = { target = it.take(70) },
+                placeholder = "Kerala PSC"
+            )
+            AppTextField(
+                label = "Exam date",
+                value = examDate,
+                onValueChange = {
+                    examDate = it.take(10)
+                    dateError = ""
+                },
+                placeholder = "2027-03-14",
+                helper = dateError.ifBlank { "Optional · YYYY-MM-DD" }
             )
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text(
@@ -613,7 +735,21 @@ private fun EditProfileDialog(
             PrimaryButton(
                 text = "Save profile",
                 onClick = {
-                    onSave(name.trim().ifBlank { "Maya" }, language, goal, reminders)
+                    val cleanDate = examDate.trim()
+                    val validDate = cleanDate.isBlank() ||
+                        runCatching { LocalDate.parse(cleanDate) }.isSuccess
+                    if (!validDate) {
+                        dateError = "Use YYYY-MM-DD, for example 2027-03-14."
+                    } else {
+                        onSave(
+                            name.trim().ifBlank { "Maya" },
+                            target.trim().ifBlank { "Kerala PSC" },
+                            cleanDate,
+                            language,
+                            goal,
+                            reminders
+                        )
+                    }
                 },
                 icon = Icons.Rounded.Check
             )

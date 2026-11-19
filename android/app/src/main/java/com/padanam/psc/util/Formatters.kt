@@ -99,6 +99,12 @@ object Format {
         return Instant.ofEpochMilli(epochMs).atZone(zone).format(shortDateFormatter)
     }
 
+    fun examDateLabel(value: String): String =
+        runCatching { LocalDate.parse(value).format(shortDateYearFormatter) }.getOrElse { value }
+
+    fun daysUntil(value: String): Long? =
+        runCatching { ChronoUnit.DAYS.between(today(), LocalDate.parse(value)) }.getOrNull()
+
     fun exportStamp(): String =
         Instant.now().atZone(zone).format(fileStampFormatter)
 

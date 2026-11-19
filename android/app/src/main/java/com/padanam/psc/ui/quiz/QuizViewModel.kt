@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.padanam.psc.AppContainer
 import com.padanam.psc.data.local.QuestionEntity
 import com.padanam.psc.data.model.ActiveExam
+import com.padanam.psc.data.model.AnswerRecord
 import com.padanam.psc.data.model.Lang
 import com.padanam.psc.data.model.QuizMode
 import kotlinx.coroutines.Dispatchers
@@ -138,7 +139,7 @@ class QuizViewModel(private val container: AppContainer) : ViewModel() {
 
     fun selectOption(letter: String) {
         val clean = letter.uppercase().take(1)
-        if (clean !in setOf("A", "B", "C", "D")) return
+        if (!AnswerRecord.isLetter(clean)) return
         mutate { exam ->
             val id = exam.currentQuestionId ?: return@mutate exam
             exam.copy(answers = exam.answers + (id to clean))

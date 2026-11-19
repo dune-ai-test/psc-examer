@@ -19,6 +19,8 @@ private val Context.settingsDataStore by preferencesDataStore(name = "padanam_se
 
 data class AppSettings(
     val name: String = "Maya",
+    val target: String = "Kerala PSC",
+    val examDate: String = "",
     val language: String = Lang.EN,
     val dailyGoal: Int = 30,
     val reminders: Boolean = true,
@@ -38,6 +40,8 @@ class SettingsRepository(private val context: Context) {
 
     private object Keys {
         val name = stringPreferencesKey("name")
+        val target = stringPreferencesKey("target")
+        val examDate = stringPreferencesKey("exam_date")
         val language = stringPreferencesKey("language")
         val dailyGoal = intPreferencesKey("daily_goal")
         val reminders = booleanPreferencesKey("reminders")
@@ -64,6 +68,8 @@ class SettingsRepository(private val context: Context) {
         .map { prefs ->
             AppSettings(
                 name = prefs[Keys.name] ?: "Maya",
+                target = prefs[Keys.target].orEmpty().trim().ifBlank { "Kerala PSC" },
+                examDate = prefs[Keys.examDate].orEmpty().trim(),
                 language = Lang.normalize(prefs[Keys.language]),
                 dailyGoal = (prefs[Keys.dailyGoal] ?: 30).coerceIn(5, 200),
                 reminders = prefs[Keys.reminders] ?: true,
@@ -124,6 +130,8 @@ class SettingsRepository(private val context: Context) {
     suspend fun resetProfile() {
         context.settingsDataStore.edit { prefs ->
             prefs[Keys.name] = "Maya"
+            prefs[Keys.target] = "Kerala PSC"
+            prefs.remove(Keys.examDate)
             prefs[Keys.language] = Lang.EN
             prefs[Keys.dailyGoal] = 30
             prefs[Keys.reminders] = true
@@ -133,12 +141,16 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveProfile(
         name: String,
+        target: String,
+        examDate: String,
         language: String,
         dailyGoal: Int,
         reminders: Boolean
     ) {
         context.settingsDataStore.edit { prefs ->
             prefs[Keys.name] = name.trim().ifBlank { "Maya" }
+            prefs[Keys.target] = target.trim().take(70).ifBlank { "Kerala PSC" }
+            prefs[Keys.examDate] = examDate.trim().take(10)
             prefs[Keys.language] = Lang.normalize(language)
             prefs[Keys.dailyGoal] = dailyGoal.coerceIn(5, 200)
             prefs[Keys.reminders] = reminders
@@ -149,6 +161,8 @@ class SettingsRepository(private val context: Context) {
     /** Applies a newer profile pulled from the shared web workspace. */
     suspend fun applyRemoteProfile(
         name: String?,
+        target: String?,
+        examDate: String?,
         language: String?,
         dailyGoal: Int?,
         updatedAtMs: Long
@@ -156,6 +170,8 @@ class SettingsRepository(private val context: Context) {
         if (updatedAtMs <= 0L) return
         context.settingsDataStore.edit { prefs ->
             if (!name.isNullOrBlank()) prefs[Keys.name] = name.trim().take(40)
+            if (!target.isNullOrBlank()) prefs[Keys.target] = target.trim().take(70)
+            if (examDate != null) prefs[Keys.examDate] = examDate.trim().take(10)
             if (language != null) prefs[Keys.language] = Lang.normalize(language)
             if (dailyGoal != null) prefs[Keys.dailyGoal] = dailyGoal.coerceIn(5, 500)
             prefs[Keys.profileUpdatedAt] = updatedAtMs

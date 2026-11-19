@@ -453,6 +453,15 @@ fun SetRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            if (summary.set.titleMl.isNotBlank()) {
+                Text(
+                    summary.set.titleMl,
+                    style = AppType.BodyTiny,
+                    color = Navy.copy(alpha = 0.72f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Text(
                 "${summary.questionCount} Q · ${Format.relativeTime(summary.createdAt)}",
                 style = AppType.MonoMeta,

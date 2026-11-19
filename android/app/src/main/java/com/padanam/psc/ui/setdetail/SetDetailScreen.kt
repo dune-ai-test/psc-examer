@@ -337,6 +337,7 @@ fun SetDetailScreen(
 
     if (renameOpen && canManage) {
         var title by remember(info.id) { mutableStateOf(info.title) }
+        var titleMl by remember(info.id) { mutableStateOf(info.set.titleMl) }
         AlertDialog(
             onDismissRequest = { renameOpen = false },
             containerColor = SurfaceWhite,
@@ -345,7 +346,7 @@ fun SetDetailScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Give this set a name you will recognise in your library.",
+                        "Give this set a name you will recognise in your library. The Malayalam title is optional and appears under the English name.",
                         style = AppType.BodySmall,
                         color = InkMuted
                     )
@@ -356,13 +357,20 @@ fun SetDetailScreen(
                         placeholder = "Cell Division Mock",
                         singleLine = true
                     )
+                    AppTextField(
+                        label = "Malayalam name (optional)",
+                        value = titleMl,
+                        onValueChange = { titleMl = it.take(120) },
+                        placeholder = "കോശ വിഭജനം",
+                        singleLine = true
+                    )
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
                         if (title.isNotBlank()) {
-                            appVm.renameSet(setId, title)
+                            appVm.renameSet(setId, title, titleMl)
                             renameOpen = false
                         }
                     }
@@ -428,6 +436,15 @@ private fun SetHero(
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
+            if (summary.set.titleMl.isNotBlank()) {
+                Text(
+                    summary.set.titleMl,
+                    style = AppType.Label.copy(fontSize = 15.sp, lineHeight = 21.sp),
+                    color = SurfaceWhite.copy(alpha = 0.82f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Text(
                 "${summary.questionCount} questions · ${summary.set.source} · ${Format.relativeTime(summary.createdAt)}",
                 style = AppType.BodyTiny,

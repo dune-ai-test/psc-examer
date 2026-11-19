@@ -173,6 +173,9 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAttempt(attempt: AttemptEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAttempts(attempts: List<AttemptEntity>)
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertRemoteAttempts(attempts: List<AttemptEntity>): List<Long>
 
@@ -194,5 +197,18 @@ interface AppDao {
         deleteAllAttempts()
         deleteAllQuestions()
         deleteAllSets()
+    }
+
+    /** Replaces the whole offline library with an imported backup. */
+    @Transaction
+    suspend fun replaceLibrary(
+        sets: List<SetEntity>,
+        questions: List<QuestionEntity>,
+        attempts: List<AttemptEntity>
+    ) {
+        resetLibrary()
+        insertSets(sets)
+        insertQuestions(questions)
+        insertAttempts(attempts)
     }
 }

@@ -9,6 +9,7 @@ import androidx.room.PrimaryKey
 data class SetEntity(
     @PrimaryKey val id: String,
     val title: String,
+    val titleMl: String = "",
     val subject: String,
     val createdAt: Long,
     val updatedAt: Long = createdAt,
@@ -39,10 +40,15 @@ data class QuestionEntity(
     val optionBEn: String,
     val optionCEn: String,
     val optionDEn: String,
+    val optionEEn: String = "",
+    val optionFEn: String = "",
     val optionAMl: String,
     val optionBMl: String,
     val optionCMl: String,
     val optionDMl: String,
+    val optionEMl: String = "",
+    val optionFMl: String = "",
+    val optionCount: Int = 4,
     val correctOption: String,
     val explanationEn: String,
     val explanationMl: String,
@@ -52,8 +58,13 @@ data class QuestionEntity(
     val createdAt: Long,
     val synced: Boolean = false
 ) {
-    fun optionsEn(): List<String> = listOf(optionAEn, optionBEn, optionCEn, optionDEn)
-    fun optionsMl(): List<String> = listOf(optionAMl, optionBMl, optionCMl, optionDMl)
+    fun optionsEn(): List<String> =
+        listOf(optionAEn, optionBEn, optionCEn, optionDEn, optionEEn, optionFEn)
+            .take(optionCount.coerceIn(2, 6))
+
+    fun optionsMl(): List<String> =
+        listOf(optionAMl, optionBMl, optionCMl, optionDMl, optionEMl, optionFMl)
+            .take(optionCount.coerceIn(2, 6))
 
     fun question(lang: String): String =
         if (lang == "ml" && questionMl.isNotBlank()) questionMl else questionEn

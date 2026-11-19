@@ -53,7 +53,7 @@ data class AnalysingState(
     val note: String
         get() = when (stage) {
             "UPLOADING" -> "Preparing a compact copy of your photograph"
-            "READING" -> "The scanner is reading the question and all four options"
+            "READING" -> "The scanner is reading the question and every option"
             "MATCHING" -> "Aligning English and Malayalam, then checking the answer"
             "REVIEW" -> "Check the draft, then choose where the questions should go"
             "SAVING" -> "Writing the reviewed questions into your library"

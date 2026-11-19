@@ -351,7 +351,7 @@ fun ScanCameraScreen(
     val hint = when (mode) {
         MODE_MULTI -> "Page ${(captured.size + 1).coerceAtMost(MAX_PAGES)} of up to $MAX_PAGES"
         MODE_BATCH -> "Batch import · choose up to $MAX_PAGES photos"
-        else -> "4 options in frame"
+        else -> "All options in frame"
     }
 
     Column(

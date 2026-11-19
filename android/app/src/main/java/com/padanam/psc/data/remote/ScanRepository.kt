@@ -69,11 +69,13 @@ class ScanRepository(private val serverApi: ServerApi) {
         append("{\"letter\":\"A\",\"text_en\":\"...\",\"text_ml\":\"...\"},")
         append("{\"letter\":\"B\",\"text_en\":\"...\",\"text_ml\":\"...\"},")
         append("{\"letter\":\"C\",\"text_en\":\"...\",\"text_ml\":\"...\"},")
-        append("{\"letter\":\"D\",\"text_en\":\"...\",\"text_ml\":\"...\"}],")
+        append("{\"letter\":\"D\",\"text_en\":\"...\",\"text_ml\":\"...\"},")
+        append("{\"letter\":\"E\",\"text_en\":\"...\",\"text_ml\":\"...\"},")
+        append("{\"letter\":\"F\",\"text_en\":\"...\",\"text_ml\":\"...\"}],")
         append("\"correct_option\":\"A\",\"explanation_en\":\"...\",\"explanation_ml\":\"...\",")
         append("\"topic\":\"Specific topic\",\"difficulty\":\"easy\",")
         append("\"confidence\":80}]}\n")
-        append("Use exactly four options per question. Do not wrap the JSON in markdown.")
+        append("Use between two and six options per question. Omit E and F for four-option questions. Do not wrap the JSON in markdown.")
     }
 
     private fun validate(raw: AiScanResult): AiScanResult {
@@ -83,25 +85,32 @@ class ScanRepository(private val serverApi: ServerApi) {
             if (stemEn.isBlank() && stemMl.isBlank()) return@mapNotNull null
 
             val options = question.options
-                .filter { it.textEn.isNotBlank() || it.textMl.isNotBlank() }
-                .take(4)
-            if (options.size != 4) return@mapNotNull null
+                .take(MAX_OPTIONS)
+                .mapIndexedNotNull { index, option ->
+                    if (option.textEn.isBlank() && option.textMl.isBlank()) {
+                        return@mapIndexedNotNull null
+                    }
+                    val printed = option.letter.trim().uppercase().take(1)
+                    val original = printed.takeIf { it in LETTERS }
+                        ?: LETTERS.getOrElse(index) { "A" }
+                    original to option
+                }
+            if (options.size < 2) return@mapNotNull null
 
-            val normalisedOptions = options.mapIndexed { index, option ->
+            val normalisedOptions = options.mapIndexed { position, item ->
+                val option = item.second
                 AiOption(
-                    letter = LETTERS[index],
+                    letter = LETTERS[position],
                     textEn = option.textEn.clean().ifBlank { option.textMl.clean() },
                     textMl = option.textMl.clean()
                 )
             }
 
-            val letter = question.correctOption
-                .trim()
-                .uppercase()
-                .firstOrNull()
-                ?.takeIf { it.toString() in LETTERS }
-                ?.toString()
-                ?: "A"
+            /* Keep the printed answer letter aligned after any blank option
+               has been dropped from the list. */
+            val requested = question.correctOption.trim().uppercase().take(1)
+            val keptIndex = options.indexOfFirst { it.first == requested }
+            val letter = LETTERS.getOrNull(keptIndex) ?: "A"
 
             AiQuestion(
                 questionEn = stemEn.ifBlank { stemMl },
@@ -119,7 +128,7 @@ class ScanRepository(private val serverApi: ServerApi) {
 
         if (cleaned.isEmpty()) {
             throw ScanException(
-                "No complete questions were found. Make sure the four options are visible and the photo is in focus."
+                "No complete questions were found. Make sure every option is visible and the photo is in focus."
             )
         }
 
@@ -147,7 +156,8 @@ class ScanRepository(private val serverApi: ServerApi) {
 
     companion object {
         private const val MAX_IMAGES = 8
-        private val LETTERS = listOf("A", "B", "C", "D")
+        private const val MAX_OPTIONS = 6
+        private val LETTERS = listOf("A", "B", "C", "D", "E", "F")
 
         private val SYSTEM_PROMPT = """
             You are Padanam's exam question extraction service for Kerala PSC aspirants.
@@ -155,14 +165,16 @@ class ScanRepository(private val serverApi: ServerApi) {
             multiple-choice question exactly once.
 
             Extraction rules:
-            1. Group each question stem with its four options A-D in printed order.
+            1. Group each question stem with its options in printed order. Most papers
+               have four options, but some have two, three, five or six. Use exactly
+               the options printed, labelled A-F.
             2. Provide both question_en and question_ml. If the printed question is in
                English, translate it naturally into Malayalam. If it is in Malayalam,
                put the original in question_ml and translate it into English. Never
                leave both empty. Use Malayalam script, not transliteration.
-            3. Provide exactly four options. text_en and text_ml follow the same rule.
-               Option letters must align between languages.
-            4. correct_option is the letter A-D of the correct option. Infer it from an
+            3. Provide the printed options only. text_en and text_ml follow the same
+               rule. Option letters must align between languages.
+            4. correct_option is the letter A-F of the correct option. Infer it from an
                answer key, underline or mark when visible. When no key is visible, use
                your subject knowledge and lower the confidence. Never invent an option.
             5. explanation_en and explanation_ml explain why the answer is correct in

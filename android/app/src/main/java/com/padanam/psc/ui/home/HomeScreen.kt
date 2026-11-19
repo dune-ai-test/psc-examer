@@ -278,7 +278,7 @@ fun HomeScreen(
 
             item {
                 InfoNote(
-                    text = "Every scan becomes a saved set — question, four options and the answer.",
+                    text = "Every scan becomes a saved set — question, its options and the answer.",
                     icon = Icons.Rounded.AutoAwesome
                 )
             }
@@ -568,7 +568,7 @@ private fun ScanCard(
         }
 
         Text(
-            if (newUser) "Your first set\nstarts with a photo." else "Photograph a question.\nGet all four options.",
+            if (newUser) "Your first set\nstarts with a photo." else "Photograph a question.\nGet every option.",
             style = AppType.HeroTitle,
             color = SurfaceWhite
         )
