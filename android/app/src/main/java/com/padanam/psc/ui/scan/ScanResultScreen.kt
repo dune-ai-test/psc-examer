@@ -66,6 +66,7 @@ import com.padanam.psc.ui.theme.IndigoWash
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.MlType
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.PlexMono
 import com.padanam.psc.ui.theme.Success
 import com.padanam.psc.ui.theme.SuccessBright
@@ -299,7 +300,7 @@ private fun SavedBanner(
             Icon(
                 Icons.Rounded.Check,
                 contentDescription = null,
-                tint = SurfaceWhite,
+                tint = OnDark,
                 modifier = Modifier.size(14.dp)
             )
         }
@@ -470,7 +471,7 @@ private fun JsonSummaryCard(
             Text(
                 if (questionCount == 1) "question.json" else "questions.json",
                 style = AppType.MonoSmall,
-                color = SurfaceWhite.copy(alpha = 0.5f)
+                color = OnDark.copy(alpha = 0.5f)
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -490,23 +491,23 @@ private fun JsonSummaryCard(
             }
         }
 
-        Text("{", style = codeStyle, color = SurfaceWhite.copy(alpha = 0.38f))
+        Text("{", style = codeStyle, color = OnDark.copy(alpha = 0.38f))
         Text(
             "  \"id\": \"${id.take(16)}\",",
             style = codeStyle,
-            color = SurfaceWhite.copy(alpha = 0.8f)
+            color = OnDark.copy(alpha = 0.8f)
         )
         if (questionCount > 1) {
             Text(
                 "  \"questions\": $questionCount,",
                 style = codeStyle,
-                color = SurfaceWhite.copy(alpha = 0.8f)
+                color = OnDark.copy(alpha = 0.8f)
             )
         }
         Text(
             "  \"options\": \"A–D\",",
             style = codeStyle,
-            color = SurfaceWhite.copy(alpha = 0.8f)
+            color = OnDark.copy(alpha = 0.8f)
         )
         Text(
             "  \"answer\": \"$answer\",",
@@ -516,8 +517,8 @@ private fun JsonSummaryCard(
         Text(
             "  \"verified\": true",
             style = codeStyle,
-            color = SurfaceWhite.copy(alpha = 0.8f)
+            color = OnDark.copy(alpha = 0.8f)
         )
-        Text("}", style = codeStyle, color = SurfaceWhite.copy(alpha = 0.38f))
+        Text("}", style = codeStyle, color = OnDark.copy(alpha = 0.38f))
     }
 }

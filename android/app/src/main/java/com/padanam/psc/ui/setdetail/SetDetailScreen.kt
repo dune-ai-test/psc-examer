@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -71,6 +72,7 @@ import com.padanam.psc.ui.theme.IndigoText
 import com.padanam.psc.ui.theme.IndigoWash
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.Success
 import com.padanam.psc.ui.theme.SurfaceMuted
 import com.padanam.psc.ui.theme.SurfaceWhite
@@ -95,6 +97,8 @@ fun SetDetailScreen(
     val setAttempts = attempts.filter { it.setId == setId }
     var language by rememberSaveable(setId) { mutableStateOf(settings.language) }
     var renameOpen by remember { mutableStateOf(false) }
+    var editorOpen by remember { mutableStateOf(false) }
+    var editingQuestion by remember { mutableStateOf<QuestionEntity?>(null) }
     var showAll by rememberSaveable(setId) { mutableStateOf(false) }
     var waited by remember(setId) { mutableStateOf(false) }
     val expanded = remember { mutableStateMapOf<String, Boolean>() }
@@ -147,8 +151,17 @@ fun SetDetailScreen(
             trailing = {
                 if (canManage) {
                     CircleAction(
+                        icon = Icons.Rounded.Add,
+                        contentDescription = "Add question",
+                        onClick = {
+                            editingQuestion = null
+                            editorOpen = true
+                        },
+                        size = 40.dp
+                    )
+                    CircleAction(
                         icon = Icons.Rounded.Edit,
-                        contentDescription = "Rename set",
+                        contentDescription = "Edit set details",
                         onClick = { renameOpen = true },
                         size = 40.dp
                     )
@@ -192,7 +205,7 @@ fun SetDetailScreen(
                             Icon(
                                 Icons.Rounded.Timer,
                                 null,
-                                tint = SurfaceWhite,
+                                tint = OnDark,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
@@ -254,7 +267,15 @@ fun SetDetailScreen(
                         question = question,
                         language = language,
                         expanded = expanded[question.id] == true,
-                        onToggle = { expanded[question.id] = expanded[question.id] != true }
+                        onToggle = { expanded[question.id] = expanded[question.id] != true },
+                        onEdit = if (canManage) {
+                            {
+                                editingQuestion = question
+                                editorOpen = true
+                            }
+                        } else {
+                            null
+                        }
                     )
                 }
 
@@ -303,13 +324,27 @@ fun SetDetailScreen(
                 }
             } else {
                 item {
-                    EmptyStateCard(
-                        icon = Icons.Rounded.AutoAwesome,
-                        title = "This set has no questions",
-                        body = "Scan the pages again to rebuild this set with bilingual questions.",
-                        primaryLabel = "Scan a question",
-                        onPrimary = onBack
-                    )
+                    if (canManage) {
+                        EmptyStateCard(
+                            icon = Icons.Rounded.AutoAwesome,
+                            title = "This set has no questions",
+                            body = "Add a bilingual question with its options, correct answer and explanation. You can also scan pages from the library.",
+                            primaryLabel = "Add first question",
+                            onPrimary = {
+                                editingQuestion = null
+                                editorOpen = true
+                            },
+                            primaryIcon = Icons.Rounded.Add
+                        )
+                    } else {
+                        EmptyStateCard(
+                            icon = Icons.Rounded.AutoAwesome,
+                            title = "This set has no questions",
+                            body = "Your administrator has not added questions to this set yet.",
+                            primaryLabel = "Go back",
+                            onPrimary = onBack
+                        )
+                    }
                 }
             }
 
@@ -338,11 +373,12 @@ fun SetDetailScreen(
     if (renameOpen && canManage) {
         var title by remember(info.id) { mutableStateOf(info.title) }
         var titleMl by remember(info.id) { mutableStateOf(info.set.titleMl) }
+        var subject by remember(info.id) { mutableStateOf(info.subject) }
         AlertDialog(
             onDismissRequest = { renameOpen = false },
             containerColor = SurfaceWhite,
             shape = RoundedCornerShape(24.dp),
-            title = { Text("Rename set", style = AppType.Question, color = Navy) },
+            title = { Text("Edit set details", style = AppType.Question, color = Navy) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
@@ -364,13 +400,20 @@ fun SetDetailScreen(
                         placeholder = "കോശ വിഭജനം",
                         singleLine = true
                     )
+                    AppTextField(
+                        label = "Subject",
+                        value = subject,
+                        onValueChange = { subject = it.take(60) },
+                        placeholder = "General",
+                        singleLine = true
+                    )
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
                         if (title.isNotBlank()) {
-                            appVm.renameSet(setId, title, titleMl)
+                            appVm.updateSetDetails(setId, title, titleMl, subject)
                             renameOpen = false
                         }
                     }
@@ -382,6 +425,22 @@ fun SetDetailScreen(
                 TextButton(onClick = { renameOpen = false }) {
                     Text("Cancel", style = AppType.ButtonSmall, color = InkMuted)
                 }
+            }
+        )
+    }
+
+    if (editorOpen && canManage) {
+        QuestionEditorDialog(
+            setId = setId,
+            question = editingQuestion,
+            onDismiss = { editorOpen = false },
+            onSave = { draft ->
+                appVm.saveQuestion(draft)
+                editorOpen = false
+            },
+            onDelete = { questionId ->
+                appVm.deleteQuestion(setId, questionId)
+                editorOpen = false
             }
         )
     }
@@ -409,10 +468,10 @@ private fun SetHero(
                         "import" -> "IMPORTED"
                         else -> "SCANNED"
                     },
-                    background = SurfaceWhite.copy(alpha = 0.12f),
-                    color = SurfaceWhite.copy(alpha = 0.8f)
+                    background = OnDark.copy(alpha = 0.12f),
+                    color = OnDark.copy(alpha = 0.8f)
                 )
-                if (summary.bestScore != null && summary.bestScore >= 60) {
+                if (summary.bestScore != null && summary.bestScore >= Format.PASS_PERCENT) {
                     MonoChip(
                         text = "PASSED",
                         background = Success.copy(alpha = 0.18f),
@@ -432,7 +491,7 @@ private fun SetHero(
             Text(
                 summary.title,
                 style = AppType.HeroTitle.copy(fontSize = 25.sp, lineHeight = 30.sp),
-                color = SurfaceWhite,
+                color = OnDark,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
@@ -440,7 +499,7 @@ private fun SetHero(
                 Text(
                     summary.set.titleMl,
                     style = AppType.Label.copy(fontSize = 15.sp, lineHeight = 21.sp),
-                    color = SurfaceWhite.copy(alpha = 0.82f),
+                    color = OnDark.copy(alpha = 0.82f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -448,7 +507,7 @@ private fun SetHero(
             Text(
                 "${summary.questionCount} questions · ${summary.set.source} · ${Format.relativeTime(summary.createdAt)}",
                 style = AppType.BodyTiny,
-                color = SurfaceWhite.copy(alpha = 0.55f)
+                color = OnDark.copy(alpha = 0.55f)
             )
         }
 
@@ -456,7 +515,7 @@ private fun SetHero(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(14.dp))
-                .background(SurfaceWhite.copy(alpha = 0.07f))
+                .background(OnDark.copy(alpha = 0.07f))
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -501,8 +560,8 @@ private fun SetHero(
 @Composable
 private fun HeroMeta(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, style = AppType.MonoSmall.copy(letterSpacing = 0.8.sp), color = SurfaceWhite.copy(alpha = 0.45f))
-        Text(value, style = AppType.StatValueSmall, color = SurfaceWhite)
+        Text(label, style = AppType.MonoSmall.copy(letterSpacing = 0.8.sp), color = OnDark.copy(alpha = 0.45f))
+        Text(value, style = AppType.StatValueSmall, color = OnDark)
     }
 }
 
@@ -521,7 +580,8 @@ private fun QuestionPreview(
     question: QuestionEntity,
     language: String,
     expanded: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    onEdit: (() -> Unit)? = null
 ) {
     val options = question.options(language)
     val correctIndex = question.correctOption.uppercase().firstOrNull()?.minus('A') ?: 0
@@ -553,6 +613,23 @@ private fun QuestionPreview(
                 color = Indigo,
                 background = IndigoSoft
             )
+            if (onEdit != null) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(IndigoWash)
+                        .clickable(onClick = onEdit),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Rounded.Edit,
+                        contentDescription = "Edit question",
+                        tint = Indigo,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
         }
 
         QuestionText(text = question.question(language), language = language)

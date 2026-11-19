@@ -127,7 +127,9 @@ object Format {
 
     fun percent(value: Int): String = "$value%"
 
-    fun passMark(total: Int): Int = kotlin.math.ceil(total * 0.6).toInt()
+    const val PASS_PERCENT = 40
+
+    fun passMark(total: Int): Int = kotlin.math.ceil(total * PASS_PERCENT / 100.0).toInt()
 
     fun averagePerQuestion(attempts: List<AttemptEntity>): Int {
         val totalQuestions = attempts.sumOf { it.total }

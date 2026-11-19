@@ -13,6 +13,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.padanam.psc.ui.AppViewModel
 import com.padanam.psc.ui.PadanamRoot
 import com.padanam.psc.ui.theme.PadanamTheme
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 class MainActivity : ComponentActivity() {
 
@@ -32,7 +34,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            PadanamTheme {
+            val settings by appVm.settings.collectAsStateWithLifecycle()
+            PadanamTheme(mode = settings.themeMode) {
                 PadanamRoot(
                     container = (application as PadanamApp).container,
                     appVm = appVm

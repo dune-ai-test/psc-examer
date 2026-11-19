@@ -70,6 +70,7 @@ import com.padanam.psc.ui.theme.IndigoWash
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.MlType
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.Success
 import com.padanam.psc.ui.theme.SuccessInk
 import com.padanam.psc.ui.theme.SuccessSoft
@@ -140,7 +141,7 @@ fun ReviewScreen(
         FILTER_SKIPPED -> answers.withIndex().filter { it.value.isSkipped }
         else -> answers.withIndex().toList()
     }
-    val passed = data.scorePercent >= 60
+    val passed = data.scorePercent >= Format.PASS_PERCENT
     val isExam = data.mode == QuizMode.EXAM
     val averageSeconds = if (answers.isEmpty()) 0 else answers.sumOf { it.timeSpentSeconds } / answers.size
 
@@ -176,12 +177,12 @@ fun ReviewScreen(
                         Text(
                             "ATTEMPT REVIEW",
                             style = AppType.MonoSmall.copy(letterSpacing = 1.1.sp),
-                            color = SurfaceWhite.copy(alpha = 0.6f)
+                            color = OnDark.copy(alpha = 0.6f)
                         )
                         ResultChip(
                             text = if (passed) "PASSED" else "NEEDS WORK",
                             color = if (passed) Color(0xFF7DE3C0) else AmberBar,
-                            background = SurfaceWhite.copy(alpha = 0.1f)
+                            background = OnDark.copy(alpha = 0.1f)
                         )
                     }
 
@@ -189,13 +190,13 @@ fun ReviewScreen(
                         Text(
                             "${data.scorePercent}%",
                             style = AppType.HeroTitle.copy(fontSize = 44.sp, lineHeight = 44.sp),
-                            color = SurfaceWhite
+                            color = OnDark
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
                             "${data.correct} of ${data.total} correct",
                             style = AppType.BodyTiny,
-                            color = SurfaceWhite.copy(alpha = 0.62f),
+                            color = OnDark.copy(alpha = 0.62f),
                             modifier = Modifier.padding(bottom = 5.dp)
                         )
                     }
@@ -203,7 +204,7 @@ fun ReviewScreen(
                     Text(
                         data.setTitle,
                         style = AppType.SectionTitle.copy(fontSize = 14.sp),
-                        color = SurfaceWhite,
+                        color = OnDark,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -211,14 +212,14 @@ fun ReviewScreen(
                         "${if (isExam) "Mock exam" else "Practice"} · ${data.subject} · " +
                             Format.fileDate(data.completedAt),
                         style = AppType.MonoSmall.copy(letterSpacing = 0.2.sp),
-                        color = SurfaceWhite.copy(alpha = 0.5f)
+                        color = OnDark.copy(alpha = 0.5f)
                     )
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(SurfaceWhite.copy(alpha = 0.07f))
+                            .background(OnDark.copy(alpha = 0.07f))
                             .padding(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -237,7 +238,7 @@ fun ReviewScreen(
                         ReviewStat(
                             label = "SKIPPED",
                             value = "$skippedCount",
-                            tint = SurfaceWhite.copy(alpha = 0.65f),
+                            tint = OnDark.copy(alpha = 0.65f),
                             modifier = Modifier.weight(1f)
                         )
                         ReviewStat(
@@ -343,7 +344,7 @@ private fun ReviewStat(
         Text(
             label,
             style = AppType.MonoSmall.copy(fontSize = 7.5.sp, letterSpacing = 0.6.sp),
-            color = SurfaceWhite.copy(alpha = 0.4f),
+            color = OnDark.copy(alpha = 0.4f),
             maxLines = 1
         )
         Text(value, style = AppType.MonoValue, color = tint)
@@ -529,7 +530,7 @@ private fun AnswerReviewCard(
                         Icon(
                             Icons.Rounded.Check,
                             null,
-                            tint = SurfaceWhite,
+                            tint = OnDark,
                             modifier = Modifier.size(8.dp)
                         )
                     }

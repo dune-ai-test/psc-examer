@@ -80,6 +80,27 @@ data class PushResult(
     val attempts: Int
 )
 
+/** Provider readiness returned by `GET /api/scan`. */
+data class ScanProviderStatus(
+    val ready: Boolean,
+    val provider: String,
+    val model: String,
+    val host: String,
+    val error: String
+)
+
+data class ProviderModel(
+    val id: String,
+    val label: String
+)
+
+data class ProviderModels(
+    val provider: String,
+    val host: String,
+    val model: String,
+    val models: List<ProviderModel>
+)
+
 /**
  * Client for the deployed Padanam Cloudflare Pages functions. The APK carries
  * no Neon connection string and no AI key: every privileged call goes through
@@ -245,6 +266,45 @@ class ServerApi(
         text
     }
 
+    /** Reads the provider readiness payload without exposing any secret. */
+    suspend fun scanStatus(baseUrl: String): ScanProviderStatus = withContext(Dispatchers.IO) {
+        val root = get(baseUrl, "/api/scan", null)
+        ScanProviderStatus(
+            ready = root.bool("ready"),
+            provider = root.string("provider"),
+            model = root.string("model"),
+            host = root.string("host"),
+            error = root.string("error")
+        )
+    }
+
+    /** Asks the server to make a tiny provider call, proving proxy + key work. */
+    suspend fun testScanProvider(baseUrl: String, token: String?): String =
+        withContext(Dispatchers.IO) {
+            val root = post(baseUrl, "/api/scan", token, buildJsonObject {
+                put("action", "test")
+            })
+            root.string("text").ifBlank { "Provider responded." }
+        }
+
+    suspend fun providerModels(baseUrl: String): ProviderModels = withContext(Dispatchers.IO) {
+        val root = get(baseUrl, "/api/models", null)
+        ProviderModels(
+            provider = root.string("provider"),
+            host = root.string("host"),
+            model = root.string("model"),
+            models = root.array("models").mapNotNull { element ->
+                (element as? JsonObject)?.let { item ->
+                    val id = item.string("id")
+                    if (id.isBlank()) null else ProviderModel(
+                        id = id,
+                        label = item.string("label").ifBlank { id }
+                    )
+                }
+            }
+        )
+    }
+
     private fun post(
         baseUrl: String,
         path: String,
@@ -264,7 +324,30 @@ class ServerApi(
         } catch (error: IllegalArgumentException) {
             throw ServerException("That server address is not a valid URL.", cause = error)
         }
+        return execute(request)
+    }
 
+    private fun get(
+        baseUrl: String,
+        path: String,
+        token: String?
+    ): JsonObject {
+        val base = normalizeBase(baseUrl)
+            ?: throw ServerException("Add the https address of your Padanam site first.")
+        val request = try {
+            Request.Builder()
+                .url(base + path)
+                .header("Accept", "application/json")
+                .apply { if (!token.isNullOrBlank()) header("Authorization", "Bearer $token") }
+                .get()
+                .build()
+        } catch (error: IllegalArgumentException) {
+            throw ServerException("That server address is not a valid URL.", cause = error)
+        }
+        return execute(request)
+    }
+
+    private fun execute(request: Request): JsonObject {
         val response = try {
             client.newCall(request).execute()
         } catch (error: java.io.IOException) {

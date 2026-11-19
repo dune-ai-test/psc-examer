@@ -67,6 +67,7 @@ import com.padanam.psc.ui.theme.IndigoText
 import com.padanam.psc.ui.theme.IndigoWash
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.Orange
 import com.padanam.psc.ui.theme.OrangeSoft
 import com.padanam.psc.ui.theme.Success
@@ -283,7 +284,7 @@ private fun FileCard(
                     .padding(3.dp)
                     .size(20.dp)
                     .clip(CircleShape)
-                    .background(SurfaceWhite.copy(alpha = 0.94f)),
+                    .background(OnDark.copy(alpha = 0.94f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -401,7 +402,7 @@ private fun SavedBanner(
             Icon(
                 Icons.Rounded.Check,
                 contentDescription = null,
-                tint = SurfaceWhite,
+                tint = OnDark,
                 modifier = Modifier.size(14.dp)
             )
         }
@@ -882,7 +883,7 @@ private fun ErrorCard(
                 text = "Try again",
                 onClick = onRetry,
                 icon = Icons.Rounded.Refresh,
-                tint = SurfaceWhite,
+                tint = OnDark,
                 container = Indigo,
                 height = 46.dp,
                 modifier = Modifier.weight(1f)

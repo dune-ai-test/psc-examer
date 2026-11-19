@@ -80,6 +80,7 @@ import com.padanam.psc.ui.theme.IndigoSoft
 import com.padanam.psc.ui.theme.IndigoText
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.Orange
 import com.padanam.psc.ui.theme.OrangeSoft
 import com.padanam.psc.ui.theme.SurfaceMuted
@@ -121,7 +122,7 @@ fun HomeScreen(
     val answeredToday = Format.answeredOn(attempts, Format.today())
     val goal = settings.dailyGoal.coerceAtLeast(1)
     val goalPercent = (answeredToday * 100 / goal).coerceIn(0, 100)
-    val due = sets.count { (it.bestScore ?: 0) < 60 || it.attemptCount == 0 }
+    val due = sets.count { (it.bestScore ?: 0) < Format.PASS_PERCENT || it.attemptCount == 0 }
 
     Column(
         modifier = Modifier
@@ -375,7 +376,7 @@ private fun ActiveExamCard(exam: ActiveExam, onResume: () -> Unit) {
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
-                        .background(SurfaceWhite.copy(alpha = 0.1f))
+                        .background(OnDark.copy(alpha = 0.1f))
                         .padding(horizontal = 9.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -384,13 +385,13 @@ private fun ActiveExamCard(exam: ActiveExam, onResume: () -> Unit) {
                     Text(
                         if (isExam) "Exam in progress" else "Practice in progress",
                         style = AppType.MonoChip,
-                        color = SurfaceWhite.copy(alpha = 0.8f)
+                        color = OnDark.copy(alpha = 0.8f)
                     )
                 }
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
-                        .background(SurfaceWhite.copy(alpha = 0.08f))
+                        .background(OnDark.copy(alpha = 0.08f))
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -408,17 +409,17 @@ private fun ActiveExamCard(exam: ActiveExam, onResume: () -> Unit) {
             Text(
                 exam.title,
                 style = AppType.HeroTitle,
-                color = SurfaceWhite,
+                color = OnDark,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(meta.uppercase(), style = AppType.Eyebrow.copy(letterSpacing = 0.4.sp), color = SurfaceWhite.copy(alpha = 0.5f))
+            Text(meta.uppercase(), style = AppType.Eyebrow.copy(letterSpacing = 0.4.sp), color = OnDark.copy(alpha = 0.5f))
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
-                    .background(SurfaceWhite.copy(alpha = 0.07f))
+                    .background(OnDark.copy(alpha = 0.07f))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
@@ -430,17 +431,17 @@ private fun ActiveExamCard(exam: ActiveExam, onResume: () -> Unit) {
                     Text(
                         "Question ${(exam.currentIndex + 1).coerceAtMost(exam.total)} of ${exam.total}",
                         style = AppType.Label.copy(fontWeight = FontWeight.Medium),
-                        color = SurfaceWhite
+                        color = OnDark
                     )
                     Text(
                         "${exam.answeredCount} answered",
                         style = AppType.MonoSmall,
-                        color = SurfaceWhite.copy(alpha = 0.5f)
+                        color = OnDark.copy(alpha = 0.5f)
                     )
                 }
                 ProgressTrack(
                     progress = progress,
-                    track = SurfaceWhite.copy(alpha = 0.12f),
+                    track = OnDark.copy(alpha = 0.12f),
                     fill = Color(0xFF8E7CFF)
                 )
             }
@@ -503,7 +504,7 @@ private fun SavedStrip(title: String, questions: Int, onOpen: () -> Unit) {
                 .background(Indigo),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Rounded.Check, null, tint = SurfaceWhite, modifier = Modifier.size(14.dp))
+            Icon(Icons.Rounded.Check, null, tint = OnDark, modifier = Modifier.size(14.dp))
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
@@ -539,7 +540,7 @@ private fun ScanCard(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
-                    .background(SurfaceWhite.copy(alpha = 0.1f))
+                    .background(OnDark.copy(alpha = 0.1f))
                     .padding(horizontal = 9.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -547,13 +548,13 @@ private fun ScanCard(
                 Icon(
                     Icons.Rounded.DocumentScanner,
                     null,
-                    tint = SurfaceWhite,
+                    tint = OnDark,
                     modifier = Modifier.size(13.dp)
                 )
                 Text(
                     if (newUser) "Start here" else "AI capture",
                     style = AppType.MonoChip,
-                    color = SurfaceWhite
+                    color = OnDark
                 )
             }
             Text(
@@ -563,14 +564,14 @@ private fun ScanCard(
                     else -> "$setCount SETS SAVED"
                 },
                 style = AppType.MonoSmall.copy(letterSpacing = 0.5.sp),
-                color = SurfaceWhite.copy(alpha = 0.5f)
+                color = OnDark.copy(alpha = 0.5f)
             )
         }
 
         Text(
             if (newUser) "Your first set\nstarts with a photo." else "Photograph a question.\nGet every option.",
             style = AppType.HeroTitle,
-            color = SurfaceWhite
+            color = OnDark
         )
 
         Row(
@@ -679,7 +680,7 @@ private fun ProgressTiles(
             }
             ProgressTrack(
                 progress = goalPercent / 100f,
-                track = SurfaceWhite.copy(alpha = 0.7f),
+                track = OnDark.copy(alpha = 0.7f),
                 fill = Indigo
             )
         }
@@ -871,7 +872,7 @@ private fun GettingStartedStep(
                 StepState.ACTIVE -> Icon(
                     Icons.Rounded.DocumentScanner,
                     null,
-                    tint = SurfaceWhite,
+                    tint = OnDark,
                     modifier = Modifier.size(13.dp)
                 )
                 StepState.PENDING -> Icon(

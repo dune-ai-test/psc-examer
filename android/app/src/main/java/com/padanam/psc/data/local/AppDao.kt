@@ -94,6 +94,12 @@ interface AppDao {
     @Query("SELECT * FROM sets WHERE synced = 0")
     suspend fun pendingSets(): List<SetEntity>
 
+    @Query("SELECT COUNT(*) FROM sets WHERE synced = 0")
+    fun observePendingSetCount(): Flow<Int>
+
+    @Query("UPDATE sets SET synced = 1")
+    suspend fun markAllSetsSynced()
+
     // ----------------------------------------------------------- questions
     @Query("SELECT * FROM questions WHERE setId = :setId ORDER BY `order` ASC")
     fun observeQuestions(setId: String): Flow<List<QuestionEntity>>
@@ -104,6 +110,9 @@ interface AppDao {
     @Query("SELECT * FROM questions WHERE id IN (:ids)")
     suspend fun questionsByIds(ids: List<String>): List<QuestionEntity>
 
+    @Query("SELECT * FROM questions WHERE id = :id")
+    suspend fun getQuestion(id: String): QuestionEntity?
+
     @Query("SELECT * FROM questions ORDER BY createdAt ASC")
     suspend fun allQuestionsOnce(): List<QuestionEntity>
 
@@ -113,6 +122,9 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertQuestions(questions: List<QuestionEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertQuestion(question: QuestionEntity)
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertRemoteQuestions(questions: List<QuestionEntity>): List<Long>
 
@@ -121,6 +133,30 @@ interface AppDao {
 
     @Query("SELECT * FROM questions WHERE synced = 0")
     suspend fun pendingQuestions(): List<QuestionEntity>
+
+    @Query("SELECT COUNT(*) FROM questions WHERE synced = 0")
+    fun observePendingQuestionCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM questions")
+    suspend fun questionCountOnce(): Int
+
+    @Query("UPDATE questions SET synced = 1")
+    suspend fun markAllQuestionsSynced()
+
+    @Query("DELETE FROM questions WHERE id = :questionId")
+    suspend fun deleteQuestionById(questionId: String)
+
+    @Transaction
+    suspend fun saveQuestionAndTouchSet(set: SetEntity, question: QuestionEntity) {
+        updateSet(set)
+        insertQuestion(question)
+    }
+
+    @Transaction
+    suspend fun deleteQuestionAndTouchSet(set: SetEntity, questionId: String) {
+        updateSet(set)
+        deleteQuestionById(questionId)
+    }
 
     @Query("DELETE FROM questions WHERE setId = :setId")
     suspend fun deleteQuestionsForSet(setId: String)
@@ -169,6 +205,12 @@ interface AppDao {
 
     @Query("SELECT * FROM attempts WHERE synced = 0")
     suspend fun pendingAttempts(): List<AttemptEntity>
+
+    @Query("SELECT COUNT(*) FROM attempts WHERE synced = 0")
+    fun observePendingAttemptCount(): Flow<Int>
+
+    @Query("UPDATE attempts SET synced = 1")
+    suspend fun markAllAttemptsSynced()
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAttempt(attempt: AttemptEntity)

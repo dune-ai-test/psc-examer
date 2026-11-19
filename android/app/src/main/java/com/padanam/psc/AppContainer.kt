@@ -4,6 +4,7 @@ import android.content.Context
 import com.padanam.psc.data.auth.AuthRepository
 import com.padanam.psc.data.local.AppDao
 import com.padanam.psc.data.local.AppDatabase
+import com.padanam.psc.data.net.NetworkMonitor
 import com.padanam.psc.data.prefs.ExamStore
 import com.padanam.psc.data.prefs.SettingsRepository
 import com.padanam.psc.data.remote.ScanRepository
@@ -31,6 +32,7 @@ class AppContainer(context: Context) {
     val settingsRepository = SettingsRepository(appContext)
     val authRepository = AuthRepository(appContext)
     val examStore = ExamStore(appContext)
+    val networkMonitor = NetworkMonitor(appContext)
 
     val serverApi = ServerApi()
     val scanRepository = ScanRepository(serverApi)

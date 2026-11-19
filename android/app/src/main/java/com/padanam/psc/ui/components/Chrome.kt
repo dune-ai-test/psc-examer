@@ -56,6 +56,7 @@ import com.padanam.psc.ui.theme.IndigoSoft
 import com.padanam.psc.ui.theme.IndigoText
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.Success
 import com.padanam.psc.ui.theme.SuccessSoft
 import com.padanam.psc.ui.theme.SurfaceMuted
@@ -185,6 +186,7 @@ fun DarkGradientCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(corner)
+    val accent = Indigo
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -193,7 +195,7 @@ fun DarkGradientCard(
             .drawBehind {
                 drawRect(
                     brush = Brush.radialGradient(
-                        colors = listOf(Indigo.copy(alpha = 0.34f), Color.Transparent),
+                        colors = listOf(accent.copy(alpha = 0.34f), Color.Transparent),
                         center = androidx.compose.ui.geometry.Offset(size.width * 0.94f, 0f),
                         radius = size.width * 1.05f
                     )
@@ -321,7 +323,7 @@ fun LanguageSwitch(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(if (dark) SurfaceWhite.copy(alpha = 0.12f) else SurfaceMuted)
+            .background(if (dark) OnDark.copy(alpha = 0.12f) else SurfaceMuted)
             .padding(2.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
@@ -332,7 +334,7 @@ fun LanguageSwitch(
                     .clip(RoundedCornerShape(999.dp))
                     .background(
                         if (selected) {
-                            if (dark) SurfaceWhite.copy(alpha = 0.2f) else SurfaceWhite
+                            if (dark) OnDark.copy(alpha = 0.2f) else SurfaceWhite
                         } else {
                             Color.Transparent
                         }
@@ -344,9 +346,9 @@ fun LanguageSwitch(
                     label,
                     style = AppType.MonoChip.copy(letterSpacing = 0.5.sp),
                     color = when {
-                        selected && dark -> SurfaceWhite
+                        selected && dark -> OnDark
                         selected -> Indigo
-                        dark -> SurfaceWhite.copy(alpha = 0.55f)
+                        dark -> OnDark.copy(alpha = 0.55f)
                         else -> InkMuted
                     }
                 )
@@ -380,7 +382,7 @@ fun InfoNote(
                     .background(Indigo),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, null, tint = SurfaceWhite, modifier = Modifier.size(15.dp))
+                Icon(icon, null, tint = OnDark, modifier = Modifier.size(15.dp))
             }
         }
         Text(text, style = AppType.BodySmall, color = foreground)

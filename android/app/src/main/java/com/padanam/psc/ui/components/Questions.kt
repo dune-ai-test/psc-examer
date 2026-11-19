@@ -34,6 +34,7 @@ import com.padanam.psc.ui.theme.IndigoSoft
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.MlType
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.Success
 import com.padanam.psc.ui.theme.SuccessInk
 import com.padanam.psc.ui.theme.SuccessSoft
@@ -96,7 +97,7 @@ fun OptionPill(
         OptionVisual.DEFAULT, OptionVisual.SKIPPED -> SurfaceWhite
     }
     val badgeText = when (visual) {
-        OptionVisual.SELECTED, OptionVisual.CORRECT, OptionVisual.WRONG -> SurfaceWhite
+        OptionVisual.SELECTED, OptionVisual.CORRECT, OptionVisual.WRONG -> OnDark
         OptionVisual.DEFAULT, OptionVisual.SKIPPED -> InkMuted
     }
     val textColor = when (visual) {

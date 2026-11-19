@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.DocumentScanner
@@ -25,8 +26,10 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.padanam.psc.data.model.SetSummary
 import com.padanam.psc.ui.AppViewModel
+import com.padanam.psc.ui.components.AppTextField
 import com.padanam.psc.ui.components.ChoiceChip
 import com.padanam.psc.ui.components.CircleAction
 import com.padanam.psc.ui.components.DarkCardButton
@@ -59,6 +63,7 @@ import com.padanam.psc.ui.theme.IndigoSoft
 import com.padanam.psc.ui.theme.IndigoText
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.SurfaceWhite
 import com.padanam.psc.util.Format
 
@@ -82,9 +87,13 @@ fun LibraryScreen(
     var filter by rememberSaveable { mutableStateOf(FILTER_ALL) }
     var subjectFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var showSubjects by remember { mutableStateOf(false) }
+    var createOpen by remember { mutableStateOf(false) }
+    var newTitle by remember { mutableStateOf("") }
+    var newTitleMl by remember { mutableStateOf("") }
+    var newSubject by remember { mutableStateOf("General") }
 
     fun isDue(summary: SetSummary): Boolean =
-        summary.attemptCount == 0 || (summary.bestScore ?: 0) < 60
+        summary.attemptCount == 0 || (summary.bestScore ?: 0) < Format.PASS_PERCENT
 
     val scannedCount = sets.count { it.set.source != "demo" }
     val savedCount = sets.count { it.attemptCount > 0 }
@@ -124,6 +133,14 @@ fun LibraryScreen(
         ) {
             item {
                 PageHeader(eyebrow = "Your question bank", title = "Library") {
+                    if (canScan) {
+                        CircleAction(
+                            icon = Icons.Rounded.Add,
+                            contentDescription = "Create question set",
+                            onClick = { createOpen = true },
+                            size = 40.dp
+                        )
+                    }
                     CircleAction(
                         icon = Icons.Rounded.Search,
                         contentDescription = "Clear search",
@@ -348,6 +365,66 @@ fun LibraryScreen(
             }
         }
     }
+
+    if (createOpen) {
+        AlertDialog(
+            onDismissRequest = { createOpen = false },
+            containerColor = SurfaceWhite,
+            shape = RoundedCornerShape(24.dp),
+            title = {
+                Text("New question set", style = AppType.Question, color = Navy)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AppTextField(
+                        label = "Set name",
+                        value = newTitle,
+                        onValueChange = { newTitle = it },
+                        placeholder = "e.g. Kerala history"
+                    )
+                    AppTextField(
+                        label = "Malayalam name",
+                        value = newTitleMl,
+                        onValueChange = { newTitleMl = it },
+                        placeholder = "Optional"
+                    )
+                    AppTextField(
+                        label = "Subject",
+                        value = newSubject,
+                        onValueChange = { newSubject = it },
+                        placeholder = "General"
+                    )
+                    Text(
+                        "The set starts empty. Add questions from its detail screen.",
+                        style = AppType.BodyTiny,
+                        color = InkMuted
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        appVm.createSet(newTitle, newTitleMl, newSubject)
+                        createOpen = false
+                        newTitle = ""
+                        newTitleMl = ""
+                        newSubject = "General"
+                    },
+                    enabled = newTitle.isNotBlank()
+                ) {
+                    Text(
+                        "Create",
+                        color = if (newTitle.isNotBlank()) Indigo else InkMuted
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { createOpen = false }) {
+                    Text("Cancel", color = Navy)
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -365,7 +442,7 @@ private fun ScanCard(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
-                    .background(SurfaceWhite.copy(alpha = 0.1f))
+                    .background(OnDark.copy(alpha = 0.1f))
                     .padding(horizontal = 9.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -373,10 +450,10 @@ private fun ScanCard(
                 Icon(
                     Icons.Rounded.DocumentScanner,
                     null,
-                    tint = SurfaceWhite,
+                    tint = OnDark,
                     modifier = Modifier.size(13.dp)
                 )
-                Text("AI capture", style = AppType.MonoChip, color = SurfaceWhite)
+                Text("AI capture", style = AppType.MonoChip, color = OnDark)
             }
             Text(
                 when {
@@ -384,13 +461,13 @@ private fun ScanCard(
                     else -> "$setCount SETS"
                 },
                 style = AppType.MonoSmall.copy(letterSpacing = 0.5.sp),
-                color = SurfaceWhite.copy(alpha = 0.5f)
+                color = OnDark.copy(alpha = 0.5f)
             )
         }
         Text(
             "Photograph a question.\nGet every option.",
             style = AppType.HeroTitle,
-            color = SurfaceWhite
+            color = OnDark
         )
         Row(
             modifier = Modifier.fillMaxWidth(),

@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.padanam.psc.ui.theme.DMSans
 import com.padanam.psc.ui.theme.Island
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.SurfaceWhite
 import com.padanam.psc.util.Format
 import kotlinx.coroutines.delay
@@ -53,7 +54,7 @@ fun PadanamStatusBar(
             delay(30_000)
         }
     }
-    val tint = if (dark) SurfaceWhite else Navy
+    val tint = if (dark) OnDark else Navy
     val island = if (dark) Color(0xFF1A2030) else Island
 
     Row(

@@ -61,6 +61,7 @@ import com.padanam.psc.ui.theme.Indigo
 import com.padanam.psc.ui.theme.IndigoSoft
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.SurfaceMuted
 import com.padanam.psc.ui.theme.SurfaceWhite
 import com.padanam.psc.ui.theme.Success
@@ -396,7 +397,7 @@ private fun LearnerRow(
             Text(
                 user.label.take(1).uppercase().ifBlank { "?" },
                 style = AppType.SectionTitle.copy(fontSize = 14.sp),
-                color = if (selected) SurfaceWhite else Navy
+                color = if (selected) OnDark else Navy
             )
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -443,7 +444,7 @@ private fun SetCheckRow(
             colors = CheckboxDefaults.colors(
                 checkedColor = Indigo,
                 uncheckedColor = InkMuted,
-                checkmarkColor = SurfaceWhite
+                checkmarkColor = OnDark
             )
         )
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {

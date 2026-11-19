@@ -15,6 +15,46 @@ import java.util.UUID
 
 data class AppendScanResult(val added: Int, val title: String)
 
+/**
+ * Everything the admin editor can change about one question. Lists always
+ * carry six slots so switching the visible option count is lossless.
+ */
+data class QuestionDraft(
+    val setId: String,
+    val questionId: String? = null,
+    val questionEn: String = "",
+    val questionMl: String = "",
+    val optionsEn: List<String> = List(6) { "" },
+    val optionsMl: List<String> = List(6) { "" },
+    val optionCount: Int = 4,
+    val correctOption: String = "A",
+    val explanationEn: String = "",
+    val explanationMl: String = "",
+    val topic: String = "General",
+    val difficulty: String = "medium"
+) {
+    val letters: List<Char> get() = ('A' until 'A' + optionCount.coerceIn(2, 6)).toList()
+
+    val valid: Boolean get() = validationError() == null
+
+    fun validationError(): String? {
+        if (questionEn.isBlank() && questionMl.isBlank()) {
+            return "Add the question text."
+        }
+        val count = optionCount.coerceIn(2, 6)
+        val filled = (0 until count).count { index ->
+            optionsEn.getOrElse(index) { "" }.isNotBlank() ||
+                optionsMl.getOrElse(index) { "" }.isNotBlank()
+        }
+        if (filled < 2) return "Add at least two options."
+        val letter = correctOption.uppercase().firstOrNull()
+        if (letter == null || letter !in letters) {
+            return "Choose which option is correct."
+        }
+        return null
+    }
+}
+
 class LibraryRepository(private val dao: AppDao) {
 
     /**
@@ -99,19 +139,116 @@ class LibraryRepository(private val dao: AppDao) {
 
     suspend fun renameSet(setId: String, newTitle: String, newTitleMl: String) {
         val set = dao.getSet(setId) ?: return
-        val clean = newTitle.trim().take(80)
-        val cleanMl = newTitleMl.trim().take(120)
-        if (clean.isBlank() || (clean == set.title && cleanMl == set.titleMl)) return
-        // Keep the set newer than the cloud copy so the next sync pushes it.
+        updateSetDetails(setId, newTitle, newTitleMl, set.subject)
+    }
+
+    /** Creates an empty administrator-authored set ready for questions. */
+    suspend fun createSet(title: String, titleMl: String, subject: String): String {
+        val now = System.currentTimeMillis()
+        val existingTitles = dao.setsOnce().map { it.title.lowercase() }.toSet()
+        val cleanTitle = uniqueTitle(title.ifBlank { "Untitled set" }, existingTitles)
+        val set = SetEntity(
+            id = "set_${UUID.randomUUID()}",
+            title = cleanTitle,
+            titleMl = titleMl.trim().take(120),
+            subject = subject.trim().take(60).ifBlank { "General" },
+            createdAt = now,
+            updatedAt = now,
+            source = SOURCE_MANUAL
+        )
+        dao.insertSet(set)
+        return set.id
+    }
+
+    suspend fun updateSetDetails(
+        setId: String,
+        title: String,
+        titleMl: String,
+        subject: String
+    ) {
+        val set = dao.getSet(setId) ?: return
+        val cleanTitle = title.trim().take(80).ifBlank { set.title }
+        val cleanMl = titleMl.trim().take(120)
+        val cleanSubject = subject.trim().take(60).ifBlank { "General" }
+        if (cleanTitle == set.title && cleanMl == set.titleMl && cleanSubject == set.subject) {
+            return
+        }
         dao.updateSet(
             set.copy(
-                title = clean,
+                title = cleanTitle,
                 titleMl = cleanMl,
+                subject = cleanSubject,
                 updatedAt = System.currentTimeMillis(),
                 synced = false
             )
         )
     }
+
+    /** Inserts a new question or replaces an existing one, keeping its order. */
+    suspend fun saveQuestion(draft: QuestionDraft): String {
+        draft.validationError()?.let { throw IllegalArgumentException(it) }
+        val set = dao.getSet(draft.setId)
+            ?: throw IllegalArgumentException("This set is no longer on this phone.")
+        val existing = draft.questionId?.let { dao.getQuestion(it) }
+        val now = System.currentTimeMillis()
+        val optionsEn = normalizeOptions(draft.optionsEn)
+        val optionsMl = normalizeOptions(draft.optionsMl)
+        val count = draft.optionCount.coerceIn(2, 6)
+        val letters = ('A' until 'A' + count).toList()
+        val correct = draft.correctOption.uppercase().take(1)
+            .takeIf { it.isNotEmpty() && it.first() in letters }
+            ?: "A"
+
+        val question = QuestionEntity(
+            id = existing?.id ?: "q_${UUID.randomUUID()}",
+            setId = draft.setId,
+            order = existing?.order
+                ?: ((dao.questionsOnce(draft.setId).maxOfOrNull { it.order } ?: -1) + 1),
+            questionEn = draft.questionEn.trim().ifBlank { draft.questionMl.trim() },
+            questionMl = draft.questionMl.trim(),
+            optionAEn = optionsEn[0],
+            optionBEn = optionsEn[1],
+            optionCEn = optionsEn[2],
+            optionDEn = optionsEn[3],
+            optionEEn = optionsEn[4],
+            optionFEn = optionsEn[5],
+            optionAMl = optionsMl[0],
+            optionBMl = optionsMl[1],
+            optionCMl = optionsMl[2],
+            optionDMl = optionsMl[3],
+            optionEMl = optionsMl[4],
+            optionFMl = optionsMl[5],
+            optionCount = count,
+            correctOption = correct,
+            explanationEn = draft.explanationEn.trim().ifBlank { draft.explanationMl.trim() },
+            explanationMl = draft.explanationMl.trim(),
+            topic = draft.topic.trim().take(60).ifBlank { "General" },
+            difficulty = draft.difficulty.takeIf { it in setOf("easy", "medium", "hard") }
+                ?: "medium",
+            confidence = existing?.confidence ?: 100,
+            createdAt = existing?.createdAt ?: now,
+            synced = false
+        )
+        dao.saveQuestionAndTouchSet(
+            set.copy(updatedAt = now, synced = false),
+            question
+        )
+        return question.id
+    }
+
+    suspend fun deleteQuestion(setId: String, questionId: String) {
+        val set = dao.getSet(setId) ?: return
+        dao.deleteQuestionAndTouchSet(
+            set.copy(updatedAt = System.currentTimeMillis(), synced = false),
+            questionId
+        )
+    }
+
+    /** Re-adds the built-in starter set when an admin asks for it. */
+    suspend fun restoreDemos(): String = seedDemo()
+
+    private fun normalizeOptions(values: List<String>): List<String> =
+        List(6) { index -> values.getOrElse(index) { "" }.trim() }
 
     suspend fun deleteSet(setId: String) = dao.deleteSetWithQuestions(setId)
 
@@ -356,5 +493,6 @@ class LibraryRepository(private val dao: AppDao) {
         const val DEMO_SOURCE = "demo"
         const val SOURCE_SCAN = "scan"
         const val SOURCE_IMPORT = "import"
+        const val SOURCE_MANUAL = "manual"
     }
 }

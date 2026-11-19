@@ -52,6 +52,8 @@ import com.padanam.psc.ui.theme.IndigoSoft
 import com.padanam.psc.ui.theme.IndigoWash
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
+import com.padanam.psc.ui.theme.OnLight
 import com.padanam.psc.ui.theme.Placeholder
 import com.padanam.psc.ui.theme.Success
 import com.padanam.psc.ui.theme.SuccessSoft
@@ -301,11 +303,11 @@ fun DarkCardButton(
         modifier = modifier
             .height(48.dp)
             .clip(RoundedCornerShape(14.dp))
-            .background(if (filled) SurfaceWhite else SurfaceWhite.copy(alpha = 0.12f))
+            .background(if (filled) OnDark else OnDark.copy(alpha = 0.12f))
             .then(
                 if (filled) Modifier else Modifier.border(
                     1.dp,
-                    SurfaceWhite.copy(alpha = 0.18f),
+                    OnDark.copy(alpha = 0.18f),
                     RoundedCornerShape(14.dp)
                 )
             )
@@ -317,14 +319,14 @@ fun DarkCardButton(
         Icon(
             icon,
             contentDescription = null,
-            tint = if (filled) Navy else SurfaceWhite,
+            tint = if (filled) OnLight else OnDark,
             modifier = Modifier.size(18.dp)
         )
         Spacer(Modifier.width(8.dp))
         Text(
             text,
             style = if (filled) AppType.Button.copy(fontSize = 13.5.sp) else AppType.ButtonSmall,
-            color = if (filled) Navy else SurfaceWhite,
+            color = if (filled) OnLight else OnDark,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -401,7 +403,7 @@ fun AttemptRow(
     modifier: Modifier = Modifier,
     showTitle: Boolean = true
 ) {
-    val passed = attempt.scorePercent >= 60
+    val passed = attempt.scorePercent >= Format.PASS_PERCENT
     Row(
         modifier = modifier
             .fillMaxWidth()

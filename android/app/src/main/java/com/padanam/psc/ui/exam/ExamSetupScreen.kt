@@ -47,6 +47,7 @@ import com.padanam.psc.ui.components.EmptyStateCard
 import com.padanam.psc.ui.components.InfoNote
 import com.padanam.psc.ui.components.LanguageSwitch
 import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.PadanamToggle
 import com.padanam.psc.ui.components.PrimaryButton
 import com.padanam.psc.ui.components.RuleRow
 import com.padanam.psc.ui.components.SegmentedControl
@@ -84,7 +85,8 @@ fun ExamSetupScreen(
     var selectedCount by rememberSaveable(setId) {
         mutableIntStateOf(if (initialMode == QuizMode.PRACTICE) total.coerceAtMost(10).coerceAtLeast(1) else total)
     }
-    var duration by rememberSaveable(setId) { mutableIntStateOf(45) }
+    var pace by rememberSaveable(setId) { mutableIntStateOf(45) }
+    var shuffle by rememberSaveable(setId) { mutableStateOf(true) }
     var language by rememberSaveable(setId) { mutableStateOf(settings.language) }
     var starting by remember { mutableStateOf(false) }
     var confirmReplace by remember { mutableStateOf(false) }
@@ -108,7 +110,8 @@ fun ExamSetupScreen(
                 setId = setId,
                 mode = mode,
                 questionCount = selectedCount,
-                durationMinutes = if (mode == QuizMode.EXAM) duration else 0,
+                durationSeconds = if (mode == QuizMode.EXAM) selectedCount * pace else 0,
+                shuffle = shuffle,
                 language = Lang.normalize(language)
             )
             starting = false
@@ -163,7 +166,9 @@ fun ExamSetupScreen(
             if (all > 0) add(all)
         }.distinct().sorted()
     }
-    val durationOptions = listOf(15, 30, 45, 60, 90)
+    val durationOptions = listOf(30, 45, 60)
+    val totalSeconds = selectedCount * pace
+    val durationLabel = Format.duration(totalSeconds)
 
     Column(
         modifier = Modifier
@@ -235,21 +240,56 @@ fun ExamSetupScreen(
                 ) {
                     SettingsRow(
                         label = "Duration",
-                        value = if (isExam) Format.durationMinutes(duration) else "No limit"
+                        value = if (isExam) durationLabel else "No limit"
+                    )
+                    ThinDivider()
+                    SettingsRow(
+                        label = "Pace",
+                        value = if (isExam) "$pace sec / question" else "Self-paced"
                     )
                     ThinDivider()
                     SettingsRow(label = "Questions", value = "$selectedCount")
                     ThinDivider()
                     SettingsRow(
                         label = "Pass mark",
-                        value = "${Format.passMark(selectedCount)} / $selectedCount"
+                        value = "${Format.passMark(selectedCount)} / $selectedCount (40%)"
                     )
                     ThinDivider()
-                    SettingsRow(label = "Answer type", value = "One of four (A–D)")
+                    SettingsRow(label = "Answer type", value = "One of A–F")
                     ThinDivider()
                     SettingsRow(
                         label = "Language",
                         value = if (language == Lang.ML) "Malayalam + English" else "English + Malayalam"
+                    )
+                }
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(SurfaceWhite)
+                ) {
+                    SettingsRow(
+                        label = "Shuffle questions",
+                        value = if (shuffle) "On" else "Off",
+                        trailing = {
+                            PadanamToggle(
+                                checked = shuffle,
+                                onCheckedChange = { shuffle = it }
+                            )
+                        }
+                    )
+                    Text(
+                        if (shuffle) {
+                            "Questions are presented in a random order."
+                        } else {
+                            "Questions follow their saved order."
+                        },
+                        style = AppType.BodyTiny,
+                        color = InkMuted,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     )
                 }
             }
@@ -282,7 +322,7 @@ fun ExamSetupScreen(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text(
-                            "TIME LIMIT",
+                            "EXAM PACE",
                             style = AppType.MonoSmall.copy(letterSpacing = 0.8.sp),
                             color = InkMuted
                         )
@@ -292,23 +332,33 @@ fun ExamSetupScreen(
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            durationOptions.forEach { minutes ->
+                            durationOptions.forEach { seconds ->
                                 ChoiceChip(
-                                    text = Format.durationMinutes(minutes),
-                                    selected = duration == minutes,
-                                    onClick = { duration = minutes }
+                                    text = "$seconds sec",
+                                    selected = pace == seconds,
+                                    onClick = { pace = seconds }
                                 )
                             }
                         }
+                        Text(
+                            "Each question gets $pace seconds, so this exam allows $durationLabel for $selectedCount questions.",
+                            style = AppType.BodyTiny,
+                            color = InkMuted
+                        )
                     }
                 }
 
                 item {
                     InfoNote(
-                        text = if (selectedCount == info.questionCount) {
-                            "The full set is included. Questions follow the scanned order."
-                        } else {
-                            "The first $selectedCount questions in this set will be used."
+                        text = when {
+                            selectedCount == info.questionCount && shuffle ->
+                                "The full set is included in a random order."
+                            selectedCount == info.questionCount ->
+                                "The full set is included in its saved order."
+                            shuffle ->
+                                "$selectedCount questions are picked at random from this set."
+                            else ->
+                                "The first $selectedCount questions in this set will be used."
                         }
                     )
                 }

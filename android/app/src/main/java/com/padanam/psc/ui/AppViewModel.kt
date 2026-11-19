@@ -14,9 +14,13 @@ import com.padanam.psc.data.model.AnswerRecord
 import com.padanam.psc.data.model.QuizMode
 import com.padanam.psc.data.model.SetSummary
 import com.padanam.psc.data.model.SyncOutcome
+import com.padanam.psc.data.model.ViewMode
 import com.padanam.psc.data.prefs.AppSettings
+import com.padanam.psc.data.remote.ProviderModel
+import com.padanam.psc.data.remote.ScanProviderStatus
 import com.padanam.psc.data.remote.ServerApi
 import com.padanam.psc.data.remote.ServerException
+import com.padanam.psc.data.repo.QuestionDraft
 import com.padanam.psc.data.repo.WebBackup
 import com.padanam.psc.util.Format
 import com.padanam.psc.work.ReminderScheduler
@@ -28,6 +32,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -41,6 +46,17 @@ data class OperationState(
     val busy: Boolean = false,
     val message: String = "",
     val success: Boolean = false
+)
+
+/** Admin-only scanner and sync diagnostics shown in Settings. */
+data class DiagnosticsState(
+    val busy: Boolean = false,
+    val status: ScanProviderStatus? = null,
+    val testResult: String = "",
+    val models: List<ProviderModel> = emptyList(),
+    val modelsProvider: String = "",
+    val message: String = "",
+    val error: String = ""
 )
 
 class AppViewModel(private val container: AppContainer) : ViewModel() {
@@ -84,6 +100,18 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope, SharingStarted.WhileSubscribed(5_000), 0
     )
 
+    val online = container.networkMonitor.online.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), true
+    )
+
+    val pendingChanges = combine(
+        dao.observePendingSetCount(),
+        dao.observePendingQuestionCount(),
+        dao.observePendingAttemptCount()
+    ) { sets, questions, attempts -> sets + questions + attempts }.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), 0
+    )
+
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 12)
     val events = _events.asSharedFlow()
 
@@ -93,9 +121,26 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     private val _backupOp = MutableStateFlow(OperationState())
     val backupOp = _backupOp.asStateFlow()
 
+    private val _diagnostics = MutableStateFlow(DiagnosticsState())
+    val diagnostics = _diagnostics.asStateFlow()
+
     init {
         viewModelScope.launch(Dispatchers.IO) {
             restoreSession()
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            var wasOffline = false
+            container.networkMonitor.online.collect { isOnline ->
+                if (!isOnline) {
+                    wasOffline = true
+                } else if (wasOffline) {
+                    wasOffline = false
+                    val settings = settingsRepo.current()
+                    if (settings.autoSync && settings.serverUrl.isNotBlank()) {
+                        syncInBackground()
+                    }
+                }
+            }
         }
     }
 
@@ -221,7 +266,8 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         setId: String,
         mode: String,
         questionCount: Int,
-        durationMinutes: Int,
+        durationSeconds: Int,
+        shuffle: Boolean,
         language: String
     ): String? = withContext(Dispatchers.IO) {
         val set = dao.getSet(setId) ?: return@withContext null
@@ -229,11 +275,8 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         if (questions.isEmpty()) return@withContext null
 
         val wanted = if (questionCount <= 0) questions.size else questionCount.coerceAtMost(questions.size)
-        val selected = if (mode == QuizMode.PRACTICE) {
-            questions.shuffled().take(wanted)
-        } else {
-            questions.take(wanted)
-        }
+        val ordered = if (shuffle) questions.shuffled() else questions
+        val selected = ordered.take(wanted)
 
         val now = System.currentTimeMillis()
         val exam = ActiveExam(
@@ -244,8 +287,8 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             subject = set.subject,
             mode = mode,
             questionIds = selected.map { it.id },
-            durationSeconds = if (mode == QuizMode.EXAM) durationMinutes * 60 else 0,
-            passPercent = 60,
+            durationSeconds = if (mode == QuizMode.EXAM) durationSeconds.coerceAtLeast(0) else 0,
+            passPercent = Format.PASS_PERCENT,
             startedAtEpochMs = now,
             answers = emptyMap(),
             flagged = emptyList(),
@@ -275,6 +318,92 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             }
             emit(UiEvent("Set details saved."))
             syncInBackground()
+        }
+    }
+
+    fun createSet(title: String, titleMl: String, subject: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                emit(UiEvent("Switch to the admin view to create sets.", error = true))
+                return@launch
+            }
+            if (title.isBlank()) {
+                emit(UiEvent("Give the set a name first.", error = true))
+                return@launch
+            }
+            runCatching { libraryRepo.createSet(title, titleMl, subject) }
+                .onSuccess {
+                    emit(UiEvent("Set created. Add its first question."))
+                    syncInBackground()
+                }
+                .onFailure { emit(UiEvent(it.message ?: "Couldn't create the set.", error = true)) }
+        }
+    }
+
+    fun updateSetDetails(setId: String, title: String, titleMl: String, subject: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                emit(UiEvent("Switch to the admin view to edit sets.", error = true))
+                return@launch
+            }
+            if (title.isBlank()) {
+                emit(UiEvent("The set name cannot be empty.", error = true))
+                return@launch
+            }
+            libraryRepo.updateSetDetails(setId, title, titleMl, subject)
+            val active = runCatching { container.examStore.activeExam.first() }.getOrNull()
+            if (active?.setId == setId) {
+                container.examStore.save(
+                    active.copy(
+                        title = title.trim().take(80),
+                        subject = subject.trim().take(60).ifBlank { "General" }
+                    )
+                )
+            }
+            emit(UiEvent("Set details saved."))
+            syncInBackground()
+        }
+    }
+
+    fun saveQuestion(draft: QuestionDraft) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                emit(UiEvent("Switch to the admin view to edit questions.", error = true))
+                return@launch
+            }
+            runCatching { libraryRepo.saveQuestion(draft) }
+                .onSuccess {
+                    emit(UiEvent(if (draft.questionId == null) "Question added." else "Question saved."))
+                    syncInBackground()
+                }
+                .onFailure { emit(UiEvent(it.message ?: "Couldn't save the question.", error = true)) }
+        }
+    }
+
+    fun deleteQuestion(setId: String, questionId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                emit(UiEvent("Switch to the admin view to delete questions.", error = true))
+                return@launch
+            }
+            libraryRepo.deleteQuestion(setId, questionId)
+            emit(UiEvent("Question deleted."))
+            syncInBackground()
+        }
+    }
+
+    fun restoreDemos() {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                emit(UiEvent("Switch to the admin view to restore demos.", error = true))
+                return@launch
+            }
+            runCatching { libraryRepo.restoreDemos() }
+                .onSuccess {
+                    emit(UiEvent("Starter demo set restored."))
+                    syncInBackground()
+                }
+                .onFailure { emit(UiEvent(it.message ?: "Couldn't restore the demo set.", error = true)) }
         }
     }
 
@@ -447,6 +576,207 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    fun setThemeMode(mode: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            settingsRepo.updateThemeMode(mode)
+        }
+    }
+
+    /**
+     * A real administrator can drop into the read-only learner view. Learners
+     * cannot elevate their view; the account role is always checked too.
+     */
+    fun setViewMode(mode: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val account = container.authRepository.current()?.user
+            if (account?.isAdmin != true) {
+                emit(UiEvent("Only an administrator account can change the view.", error = true))
+                return@launch
+            }
+            settingsRepo.updateViewMode(mode)
+            emit(
+                UiEvent(
+                    if (mode == ViewMode.LEARNER) {
+                        "Learner view on. Library editing is hidden."
+                    } else {
+                        "Admin view on."
+                    }
+                )
+            )
+        }
+    }
+
+    // ------------------------------------------------------- offline & ops
+
+    /**
+     * Pulls the account workspace and pushes local changes, then marks the
+     * complete Room copy as offline-ready. This is the explicit download the
+     * learner can run before losing connectivity.
+     */
+    fun downloadForOffline() {
+        if (_syncOp.value.busy) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = container.authRepository.current()
+            if (current == null) {
+                _syncOp.value = OperationState(
+                    message = "Sign in to download your questions.",
+                    success = false
+                )
+                return@launch
+            }
+            val settings = settingsRepo.current()
+            if (settings.serverUrl.isBlank()) {
+                _syncOp.value = OperationState(
+                    message = "Add the address of your Padanam site in Settings first.",
+                    success = false
+                )
+                return@launch
+            }
+            _syncOp.value = OperationState(
+                busy = true,
+                message = "Downloading every set and question…"
+            )
+            val outcome = container.cloudSyncRepository.sync(
+                settings.serverUrl,
+                current,
+                settings
+            )
+            if (!outcome.ok) {
+                reportSync(outcome, silentSuccess = false)
+                return@launch
+            }
+            settingsRepo.markOfflineReady()
+            val sets = dao.setsOnce().size
+            val questions = dao.questionCountOnce()
+            val message = "Offline copy ready · $sets ${if (sets == 1) "set" else "sets"} · " +
+                "$questions ${if (questions == 1) "question" else "questions"}."
+            settingsRepo.markSynced(message)
+            _syncOp.value = OperationState(message = message, success = true)
+            emit(UiEvent(message))
+        }
+    }
+
+    fun loadScannerStatus() {
+        if (_diagnostics.value.busy) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                _diagnostics.value = DiagnosticsState(
+                    error = "Switch to the admin view to run scanner checks."
+                )
+                return@launch
+            }
+            val base = settingsRepo.current().serverUrl
+            if (base.isBlank()) {
+                _diagnostics.value = DiagnosticsState(
+                    error = "Add the Padanam site address first."
+                )
+                return@launch
+            }
+            _diagnostics.value = _diagnostics.value.copy(
+                busy = true,
+                error = "",
+                message = ""
+            )
+            runCatching { container.serverApi.scanStatus(base) }
+                .onSuccess { status ->
+                    _diagnostics.value = _diagnostics.value.copy(
+                        busy = false,
+                        status = status,
+                        message = if (status.ready) {
+                            "Provider is ready."
+                        } else {
+                            status.error.ifBlank { "The provider is not configured." }
+                        }
+                    )
+                }
+                .onFailure { error ->
+                    _diagnostics.value = _diagnostics.value.copy(
+                        busy = false,
+                        error = error.message ?: "Couldn't read the scanner status."
+                    )
+                }
+        }
+    }
+
+    fun testScanner() {
+        if (_diagnostics.value.busy) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                _diagnostics.value = DiagnosticsState(
+                    error = "Switch to the admin view to test the scanner."
+                )
+                return@launch
+            }
+            val base = settingsRepo.current().serverUrl
+            if (base.isBlank()) {
+                _diagnostics.value = _diagnostics.value.copy(
+                    error = "Add the Padanam site address first."
+                )
+                return@launch
+            }
+            _diagnostics.value = _diagnostics.value.copy(
+                busy = true,
+                error = "",
+                testResult = "",
+                message = ""
+            )
+            val token = container.authRepository.current()?.token
+            runCatching { container.serverApi.testScanProvider(base, token) }
+                .onSuccess { text ->
+                    _diagnostics.value = _diagnostics.value.copy(
+                        busy = false,
+                        testResult = text,
+                        message = "Provider test passed."
+                    )
+                }
+                .onFailure { error ->
+                    _diagnostics.value = _diagnostics.value.copy(
+                        busy = false,
+                        error = error.message ?: "The provider test failed."
+                    )
+                }
+        }
+    }
+
+    fun loadModels() {
+        if (_diagnostics.value.busy) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!isAdmin()) {
+                _diagnostics.value = DiagnosticsState(
+                    error = "Switch to the admin view to list provider models."
+                )
+                return@launch
+            }
+            val base = settingsRepo.current().serverUrl
+            if (base.isBlank()) {
+                _diagnostics.value = _diagnostics.value.copy(
+                    error = "Add the Padanam site address first."
+                )
+                return@launch
+            }
+            _diagnostics.value = _diagnostics.value.copy(
+                busy = true,
+                error = "",
+                message = ""
+            )
+            runCatching { container.serverApi.providerModels(base) }
+                .onSuccess { result ->
+                    _diagnostics.value = _diagnostics.value.copy(
+                        busy = false,
+                        models = result.models,
+                        modelsProvider = result.provider.ifBlank { result.host },
+                        message = "${result.models.size} models available."
+                    )
+                }
+                .onFailure { error ->
+                    _diagnostics.value = _diagnostics.value.copy(
+                        busy = false,
+                        error = error.message ?: "Couldn't load the model list."
+                    )
+                }
+        }
+    }
+
     /** Saves the deployed Padanam site used for /api/auth, /api/sync and /api/scan. */
     fun saveServer(url: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -513,6 +843,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             )
             if (outcome.ok) {
                 settingsRepo.markSynced(outcome.message)
+                if (settings.offlineReady) settingsRepo.markOfflineReady()
             } else {
                 settingsRepo.markSyncFailed(outcome.message)
             }
@@ -522,6 +853,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     private suspend fun reportSync(outcome: SyncOutcome, silentSuccess: Boolean) {
         if (outcome.ok) {
             settingsRepo.markSynced(outcome.message)
+            if (settingsRepo.current().offlineReady) settingsRepo.markOfflineReady()
             _syncOp.value = OperationState(message = outcome.message, success = true)
             if (!silentSuccess) emit(UiEvent(outcome.message))
         } else {
@@ -531,8 +863,11 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    private suspend fun isAdmin(): Boolean =
-        container.authRepository.current()?.user?.isAdmin == true
+    private suspend fun isAdmin(): Boolean {
+        val user = container.authRepository.current()?.user ?: return false
+        if (!user.isAdmin) return false
+        return settingsRepo.current().viewMode != ViewMode.LEARNER
+    }
 
     fun emit(event: UiEvent) {
         _events.tryEmit(event)

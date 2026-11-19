@@ -17,6 +17,30 @@ object QuizMode {
     const val EXAM = "exam"
 }
 
+/** Device-wide appearance choice; "system" follows the phone setting. */
+object ThemeMode {
+    const val LIGHT = "light"
+    const val DARK = "dark"
+    const val SYSTEM = "system"
+
+    fun normalize(value: String?): String = when (value) {
+        LIGHT, DARK -> value
+        else -> SYSTEM
+    }
+}
+
+/**
+ * The view an administrator has chosen. A real admin account can switch to
+ * the read-only learner view; learners are always learners regardless of the
+ * stored value.
+ */
+object ViewMode {
+    const val ADMIN = "admin"
+    const val LEARNER = "learner"
+
+    fun normalize(value: String?): String = if (value == LEARNER) LEARNER else ADMIN
+}
+
 /** Raw structured output from the scanning service. */
 @Serializable
 data class AiScanResult(
@@ -105,7 +129,7 @@ data class ActiveExam(
     val mode: String = QuizMode.EXAM,
     val questionIds: List<String> = emptyList(),
     val durationSeconds: Int = 0,
-    val passPercent: Int = 60,
+    val passPercent: Int = 40,
     val startedAtEpochMs: Long = 0L,
     val answers: Map<String, String> = emptyMap(),
     val flagged: List<String> = emptyList(),

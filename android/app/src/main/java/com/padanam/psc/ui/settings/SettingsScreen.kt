@@ -1,6 +1,10 @@
 package com.padanam.psc.ui.settings
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,14 +15,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AdminPanelSettings
+import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudQueue
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Science
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -38,8 +51,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.padanam.psc.BuildConfig
+import com.padanam.psc.data.model.ThemeMode
+import com.padanam.psc.data.model.ViewMode
 import com.padanam.psc.ui.AppViewModel
 import com.padanam.psc.ui.components.AppTextField
+import com.padanam.psc.ui.components.ChoiceChip
 import com.padanam.psc.ui.components.InfoNote
 import com.padanam.psc.ui.components.LightButton
 import com.padanam.psc.ui.components.PadanamStatusBar
@@ -58,6 +74,7 @@ import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
 import com.padanam.psc.ui.theme.Success
 import com.padanam.psc.ui.theme.SuccessSoft
+import com.padanam.psc.ui.theme.SurfaceMuted
 import com.padanam.psc.ui.theme.SurfaceWhite
 import com.padanam.psc.util.Format
 
@@ -70,12 +87,26 @@ fun SettingsScreen(
     val settings by appVm.settings.collectAsStateWithLifecycle()
     val session by appVm.session.collectAsStateWithLifecycle()
     val syncOp by appVm.syncOp.collectAsStateWithLifecycle()
+    val backupOp by appVm.backupOp.collectAsStateWithLifecycle()
+    val diagnostics by appVm.diagnostics.collectAsStateWithLifecycle()
+    val sets by appVm.sets.collectAsStateWithLifecycle()
+    val questionCount by appVm.questionCount.collectAsStateWithLifecycle()
+    val pendingChanges by appVm.pendingChanges.collectAsStateWithLifecycle()
+    val online by appVm.online.collectAsStateWithLifecycle()
 
     var server by rememberSaveable(settings.serverUrl) { mutableStateOf(settings.serverUrl) }
     var signOutOpen by remember { mutableStateOf(false) }
+    var pendingImport by remember { mutableStateOf<Uri?>(null) }
+
+    val importPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) pendingImport = uri
+    }
 
     val user = session?.user
     val isAdmin = user?.isAdmin == true
+    val canAdmin = isAdmin && settings.viewMode != ViewMode.LEARNER
     val connected = settings.serverUrl.isNotBlank()
 
     if (signOutOpen) {
@@ -110,6 +141,45 @@ fun SettingsScreen(
         )
     }
 
+    if (pendingImport != null) {
+        AlertDialog(
+            onDismissRequest = { pendingImport = null },
+            containerColor = SurfaceWhite,
+            shape = RoundedCornerShape(24.dp),
+            title = { Text("Import this backup?", style = AppType.Question, color = Navy) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Importing replaces this phone's library, results and profile with the contents of the file. Your server address and account stay as they are.",
+                        style = AppType.BodySmall,
+                        color = InkMuted
+                    )
+                    Text(
+                        "Both Padanam web backups and older Android exports are accepted.",
+                        style = AppType.BodySmall,
+                        color = InkMuted
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val uri = pendingImport
+                        pendingImport = null
+                        if (uri != null) appVm.importLibrary(uri)
+                    }
+                ) {
+                    Text("Import backup", style = AppType.ButtonSmall, color = Indigo)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImport = null }) {
+                    Text("Cancel", style = AppType.ButtonSmall, color = InkMuted)
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -130,7 +200,7 @@ fun SettingsScreen(
                         color = Navy
                     )
                     Text(
-                        "Account, sync and study defaults.",
+                        "Account, offline library, sync and study defaults.",
                         style = AppType.BodySmall,
                         color = InkMuted
                     )
@@ -191,7 +261,11 @@ fun SettingsScreen(
                                 .padding(horizontal = 9.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                if (isAdmin) "ADMIN" else "LEARNER",
+                                when {
+                                    !isAdmin -> "LEARNER"
+                                    canAdmin -> "ADMIN"
+                                    else -> "ADMIN · LEARNER VIEW"
+                                },
                                 style = AppType.MonoChip,
                                 color = if (isAdmin) Indigo else Success
                             )
@@ -208,7 +282,7 @@ fun SettingsScreen(
                         style = AppType.BodySmall,
                         color = InkMuted
                     )
-                    if (isAdmin) {
+                    if (canAdmin) {
                         SettingsRow(
                             label = "Admin console",
                             value = "Learners & assignments",
@@ -287,6 +361,198 @@ fun SettingsScreen(
                         onClick = { appVm.saveServer(server) },
                         icon = Icons.Rounded.CloudQueue,
                         enabled = server.isNotBlank()
+                    )
+                }
+            }
+
+            item {
+                SectionLabel("Appearance")
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(SurfaceWhite)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(IndigoSoft),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.Palette,
+                                null,
+                                tint = Indigo,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text("Theme", style = AppType.Label, color = Navy)
+                            Text(
+                                "Light, dark or follow the phone setting",
+                                style = AppType.BodyTiny,
+                                color = InkMuted
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(
+                            ThemeMode.LIGHT to "Light",
+                            ThemeMode.DARK to "Dark",
+                            ThemeMode.SYSTEM to "System"
+                        ).forEach { (value, label) ->
+                            ChoiceChip(
+                                text = label,
+                                selected = settings.themeMode == value,
+                                onClick = { appVm.setThemeMode(value) }
+                            )
+                        }
+                    }
+                    if (isAdmin) {
+                        ThinDivider()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text("Admin view", style = AppType.Label, color = Navy)
+                                Text(
+                                    if (settings.viewMode == ViewMode.LEARNER) {
+                                        "Learner view is read-only"
+                                    } else {
+                                        "Scanning, editing and admin tools are visible"
+                                    },
+                                    style = AppType.BodyTiny,
+                                    color = InkMuted
+                                )
+                            }
+                            PadanamToggle(
+                                checked = settings.viewMode == ViewMode.ADMIN,
+                                onCheckedChange = { checked ->
+                                    appVm.setViewMode(
+                                        if (checked) ViewMode.ADMIN else ViewMode.LEARNER
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                SectionLabel("Offline library")
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(SurfaceWhite)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(13.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(9.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(IndigoSoft),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Download,
+                                    null,
+                                    tint = Indigo,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text("Downloaded questions", style = AppType.Label, color = Navy)
+                                Text(
+                                    "${sets.size} sets · ${Format.number(questionCount)} questions cached",
+                                    style = AppType.BodyTiny,
+                                    color = InkMuted
+                                )
+                            }
+                        }
+                        Text(
+                            when {
+                                !connected -> "NEEDS SERVER"
+                                settings.offlineReady -> "READY"
+                                else -> "NOT DOWNLOADED"
+                            },
+                            style = AppType.MonoChip,
+                            color = when {
+                                !connected -> Danger
+                                settings.offlineReady -> Success
+                                else -> InkMuted
+                            }
+                        )
+                    }
+
+                    Text(
+                        buildString {
+                            append(if (online) "Online" else "Offline")
+                            append(" · ")
+                            append(
+                                if (pendingChanges > 0) {
+                                    "$pendingChanges local change${if (pendingChanges == 1) "" else "s"} to sync"
+                                } else {
+                                    "all local changes are synced"
+                                }
+                            )
+                            append(" · ")
+                            append(
+                                if (settings.offlineReadyAt > 0L) {
+                                    "downloaded ${Format.relativeTime(settings.offlineReadyAt)}"
+                                } else {
+                                    "never downloaded as a complete copy"
+                                }
+                            )
+                        },
+                        style = AppType.BodyTiny,
+                        color = InkMuted
+                    )
+
+                    PrimaryButton(
+                        text = when {
+                            syncOp.busy -> "Downloading…"
+                            settings.offlineReady -> "Refresh offline copy"
+                            else -> "Download for offline"
+                        },
+                        onClick = { appVm.downloadForOffline() },
+                        icon = Icons.Rounded.Download,
+                        enabled = !syncOp.busy && connected && session != null
+                    )
+
+                    InfoNote(
+                        text = "Every set, option, answer and explanation is stored on this phone. " +
+                            "The app syncs automatically when the internet returns, or you can " +
+                            "press Sync now.",
+                        icon = Icons.Rounded.CloudDone
                     )
                 }
             }
@@ -416,6 +682,245 @@ fun SettingsScreen(
                             syncOp.message,
                             style = AppType.BodyTiny,
                             color = if (syncOp.success) Success else Danger
+                        )
+                    }
+                }
+            }
+
+            if (canAdmin) {
+                item {
+                    SectionLabel("Admin tools")
+                }
+
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(SurfaceWhite)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(9.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(IndigoSoft),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.Science,
+                                        null,
+                                        tint = Indigo,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                    Text("Scanner diagnostics", style = AppType.Label, color = Navy)
+                                    Text(
+                                        "Provider, proxy and model checks",
+                                        style = AppType.BodyTiny,
+                                        color = InkMuted
+                                    )
+                                }
+                            }
+                            if (diagnostics.busy) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = Indigo,
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                        }
+
+                        val status = diagnostics.status
+                        if (status != null) {
+                            Text(
+                                "${status.provider.ifBlank { "Provider" }} · " +
+                                    status.model.ifBlank { "model not reported" }",
+                                style = AppType.BodyTiny,
+                                color = Navy
+                            )
+                            Text(
+                                "Host: ${status.host.ifBlank { "not reported" }}",
+                                style = AppType.MonoSmall,
+                                color = InkMuted
+                            )
+                            if (!status.ready && status.error.isNotBlank()) {
+                                Text(
+                                    status.error,
+                                    style = AppType.BodyTiny,
+                                    color = Danger
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            LightButton(
+                                text = "Status",
+                                onClick = { appVm.loadScannerStatus() },
+                                icon = Icons.Rounded.CloudDone,
+                                container = SurfaceMuted,
+                                height = 42.dp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            LightButton(
+                                text = "Test",
+                                onClick = { appVm.testScanner() },
+                                icon = Icons.Rounded.Science,
+                                container = SurfaceMuted,
+                                height = 42.dp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            LightButton(
+                                text = "Models",
+                                onClick = { appVm.loadModels() },
+                                icon = Icons.Rounded.Storage,
+                                container = SurfaceMuted,
+                                height = 42.dp,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        if (diagnostics.message.isNotBlank()) {
+                            Text(
+                                diagnostics.message,
+                                style = AppType.BodyTiny,
+                                color = if (diagnostics.error.isBlank()) Success else InkMuted
+                            )
+                        }
+                        if (diagnostics.error.isNotBlank()) {
+                            Text(
+                                diagnostics.error,
+                                style = AppType.BodyTiny,
+                                color = Danger
+                            )
+                        }
+                        if (diagnostics.testResult.isNotBlank()) {
+                            Text(
+                                "Test reply: ${diagnostics.testResult}",
+                                style = AppType.MonoSmall,
+                                color = InkMuted
+                            )
+                        }
+                        if (diagnostics.models.isNotEmpty()) {
+                            Text(
+                                "${diagnostics.models.size} models · " +
+                                    diagnostics.modelsProvider.ifBlank { "provider" },
+                                style = AppType.MonoSmall,
+                                color = InkMuted
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                diagnostics.models.take(20).forEach { model ->
+                                    ChoiceChip(
+                                        text = model.id,
+                                        selected = false,
+                                        onClick = {}
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            "API keys and database secrets stay on the deployed server. " +
+                                "The app only calls /api/scan and /api/models.",
+                            style = AppType.BodyTiny,
+                            color = InkMuted
+                        )
+                    }
+                }
+
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(SurfaceWhite)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(9.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(IndigoSoft),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Storage,
+                                    null,
+                                    tint = Indigo,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text("Data & backup", style = AppType.Label, color = Navy)
+                                Text(
+                                    "Export, restore or return to the demo set",
+                                    style = AppType.BodyTiny,
+                                    color = InkMuted
+                                )
+                            }
+                        }
+                        SettingsRow(
+                            label = "Export library",
+                            value = "Web-compatible JSON",
+                            onClick = { appVm.exportLibrary() }
+                        )
+                        ThinDivider()
+                        SettingsRow(
+                            label = "Import backup",
+                            value = if (backupOp.busy) "Reading…" else "Web or Android",
+                            onClick = {
+                                if (!backupOp.busy) {
+                                    importPicker.launch(
+                                        arrayOf(
+                                            "application/json",
+                                            "text/plain",
+                                            "application/octet-stream"
+                                        )
+                                    )
+                                }
+                            }
+                        )
+                        ThinDivider()
+                        SettingsRow(
+                            label = "Restore demo set",
+                            value = "Starter questions",
+                            onClick = { appVm.restoreDemos() }
+                        )
+                        if (backupOp.message.isNotBlank()) {
+                            Text(
+                                backupOp.message,
+                                style = AppType.BodyTiny,
+                                color = if (backupOp.success) Success else Danger
+                            )
+                        }
+                        Text(
+                            "Import replaces this phone's library, results and profile. " +
+                                "Your account and server address are kept.",
+                            style = AppType.BodyTiny,
+                            color = InkMuted
                         )
                     }
                 }

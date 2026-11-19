@@ -1,36 +1,15 @@
 package com.padanam.psc.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.dp
-
-private val PadanamColors = lightColorScheme(
-    primary = Indigo,
-    onPrimary = SurfaceWhite,
-    primaryContainer = IndigoSoft,
-    onPrimaryContainer = IndigoText,
-    secondary = Navy,
-    onSecondary = SurfaceWhite,
-    secondaryContainer = SurfaceMuted,
-    onSecondaryContainer = Navy,
-    tertiary = Success,
-    onTertiary = SurfaceWhite,
-    background = Cloud,
-    onBackground = Navy,
-    surface = SurfaceWhite,
-    onSurface = Navy,
-    surfaceVariant = IndigoWash,
-    onSurfaceVariant = InkMuted,
-    outline = Hairline,
-    outlineVariant = Track,
-    error = Danger,
-    onError = SurfaceWhite,
-    errorContainer = DangerSoft,
-    onErrorContainer = Danger
-)
+import com.padanam.psc.data.model.ThemeMode
 
 private val PadanamShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
@@ -41,11 +20,74 @@ private val PadanamShapes = Shapes(
 )
 
 @Composable
-fun PadanamTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = PadanamColors,
-        typography = AppTypography,
-        shapes = PadanamShapes,
-        content = content
-    )
+fun PadanamTheme(
+    mode: String = ThemeMode.SYSTEM,
+    content: @Composable () -> Unit
+) {
+    val dark = when (ThemeMode.normalize(mode)) {
+        ThemeMode.DARK -> true
+        ThemeMode.LIGHT -> false
+        else -> isSystemInDarkTheme()
+    }
+
+    val colors = if (dark) {
+        darkColorScheme(
+            primary = Indigo,
+            onPrimary = OnDark,
+            primaryContainer = IndigoSoft,
+            onPrimaryContainer = IndigoText,
+            secondary = Navy,
+            onSecondary = DarkBackground,
+            secondaryContainer = SurfaceMuted,
+            onSecondaryContainer = Navy,
+            tertiary = Success,
+            onTertiary = DarkBackground,
+            background = Cloud,
+            onBackground = Navy,
+            surface = SurfaceWhite,
+            onSurface = Navy,
+            surfaceVariant = IndigoWash,
+            onSurfaceVariant = InkMuted,
+            outline = Hairline,
+            outlineVariant = Track,
+            error = Danger,
+            onError = DarkBackground,
+            errorContainer = DangerSoft,
+            onErrorContainer = Danger
+        )
+    } else {
+        lightColorScheme(
+            primary = Indigo,
+            onPrimary = OnDark,
+            primaryContainer = IndigoSoft,
+            onPrimaryContainer = IndigoText,
+            secondary = Navy,
+            onSecondary = OnDark,
+            secondaryContainer = SurfaceMuted,
+            onSecondaryContainer = Navy,
+            tertiary = Success,
+            onTertiary = OnDark,
+            background = Cloud,
+            onBackground = Navy,
+            surface = SurfaceWhite,
+            onSurface = Navy,
+            surfaceVariant = IndigoWash,
+            onSurfaceVariant = InkMuted,
+            outline = Hairline,
+            outlineVariant = Track,
+            error = Danger,
+            onError = OnDark,
+            errorContainer = DangerSoft,
+            onErrorContainer = Danger
+        )
+    }
+
+    CompositionLocalProvider(LocalPadanamPalette provides paletteFor(dark)) {
+        MaterialTheme(
+            colorScheme = colors,
+            typography = AppTypography,
+            shapes = PadanamShapes,
+            content = content
+        )
+    }
 }

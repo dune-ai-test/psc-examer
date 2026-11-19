@@ -87,6 +87,9 @@ class CloudSyncRepository(
             }
 
             val pushed = serverApi.push(baseUrl, session.token, payload)
+            dao.markAllSetsSynced()
+            dao.markAllQuestionsSynced()
+            dao.markAllAttemptsSynced()
             val message = buildString {
                 append("Synced ")
                 append(sets.size)

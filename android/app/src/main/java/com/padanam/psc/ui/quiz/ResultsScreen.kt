@@ -71,6 +71,7 @@ import com.padanam.psc.ui.theme.IndigoSoft
 import com.padanam.psc.ui.theme.IndigoText
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.Success
 import com.padanam.psc.ui.theme.SuccessBright
 import com.padanam.psc.ui.theme.SuccessSoft
@@ -132,7 +133,7 @@ fun ResultsScreen(
         .maxByOrNull { it.completedAt }
     val best = sameSet.maxOfOrNull { it.scorePercent } ?: data.scorePercent
     val delta = previous?.let { data.scorePercent - it.scorePercent }
-    val passed = data.scorePercent >= 60
+    val passed = data.scorePercent >= Format.PASS_PERCENT
     val isExam = data.mode == QuizMode.EXAM
     val previewRows = answers
         .withIndex()
@@ -198,7 +199,7 @@ fun ResultsScreen(
                         Text(
                             "FINAL SCORE",
                             style = AppType.MonoSmall.copy(letterSpacing = 1.1.sp),
-                            color = SurfaceWhite.copy(alpha = 0.6f)
+                            color = OnDark.copy(alpha = 0.6f)
                         )
                         Row(
                             modifier = Modifier
@@ -228,13 +229,13 @@ fun ResultsScreen(
                         Text(
                             "${data.scorePercent}%",
                             style = AppType.HeroTitle.copy(fontSize = 46.sp, lineHeight = 46.sp),
-                            color = SurfaceWhite
+                            color = OnDark
                         )
                         Spacer(Modifier.width(9.dp))
                         Text(
                             "${data.correct} of ${data.total} correct",
                             style = AppType.BodyTiny,
-                            color = SurfaceWhite.copy(alpha = 0.6f),
+                            color = OnDark.copy(alpha = 0.6f),
                             modifier = Modifier.padding(bottom = 6.dp)
                         )
                     }
@@ -328,7 +329,7 @@ fun ResultsScreen(
                         Icon(
                             Icons.Rounded.Check,
                             null,
-                            tint = SurfaceWhite,
+                            tint = OnDark,
                             modifier = Modifier.size(14.dp)
                         )
                     }

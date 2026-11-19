@@ -21,6 +21,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.padanam.psc.AppContainer
 import com.padanam.psc.data.model.QuizMode
+import com.padanam.psc.data.model.ViewMode
 import com.padanam.psc.ui.admin.AdminScreen
 import com.padanam.psc.ui.auth.AuthLoadingScreen
 import com.padanam.psc.ui.auth.LoginScreen
@@ -83,7 +84,13 @@ fun PadanamRoot(
             initialServer = settings.serverUrl
         )
         else -> key(account.user.id) {
-            SignedInRoot(container, appVm, admin = account.user.isAdmin)
+            val adminView = account.user.isAdmin && settings.viewMode != ViewMode.LEARNER
+            SignedInRoot(
+                container = container,
+                appVm = appVm,
+                admin = adminView,
+                realAdmin = account.user.isAdmin
+            )
         }
     }
 }
@@ -92,7 +99,8 @@ fun PadanamRoot(
 private fun SignedInRoot(
     container: AppContainer,
     appVm: AppViewModel,
-    admin: Boolean
+    admin: Boolean,
+    realAdmin: Boolean
 ) {
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -187,6 +195,7 @@ private fun SignedInRoot(
                 ProfileScreen(
                     appVm = appVm,
                     canManage = admin,
+                    realAdmin = realAdmin,
                     onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                     onOpenAdmin = { navController.navigate(Routes.ADMIN) },
                     onOpenAttempt = { navController.navigate(Routes.review(it)) }

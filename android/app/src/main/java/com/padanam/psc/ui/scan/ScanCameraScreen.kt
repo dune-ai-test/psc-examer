@@ -86,8 +86,7 @@ import com.padanam.psc.ui.theme.Danger
 import com.padanam.psc.ui.theme.DarkBackground
 import com.padanam.psc.ui.theme.DarkSurface
 import com.padanam.psc.ui.theme.Indigo
-import com.padanam.psc.ui.theme.Navy
-import com.padanam.psc.ui.theme.SurfaceWhite
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.util.ImageUtils
 import com.padanam.psc.util.PreparedImage
 import java.io.File
@@ -376,7 +375,7 @@ fun ScanCameraScreen(
             Text(
                 "SCAN A QUESTION",
                 style = AppType.Eyebrow.copy(letterSpacing = 1.2.sp),
-                color = SurfaceWhite.copy(alpha = 0.7f),
+                color = OnDark.copy(alpha = 0.7f),
                 modifier = Modifier.align(Alignment.Center)
             )
             CameraCircleButton(
@@ -413,7 +412,7 @@ fun ScanCameraScreen(
                     Text(
                         hint,
                         style = AppType.BodySmall,
-                        color = SurfaceWhite.copy(alpha = 0.8f),
+                        color = OnDark.copy(alpha = 0.8f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -421,7 +420,7 @@ fun ScanCameraScreen(
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
-                        .background(SurfaceWhite.copy(alpha = 0.1f))
+                        .background(OnDark.copy(alpha = 0.1f))
                         .padding(horizontal = 9.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -437,7 +436,7 @@ fun ScanCameraScreen(
                     Text(
                         if (!hasPermission || fatalCameraError != null) "PAUSED" else "AUTO",
                         style = AppType.MonoChip.copy(fontSize = 8.sp, letterSpacing = 0.9.sp),
-                        color = SurfaceWhite.copy(alpha = 0.7f)
+                        color = OnDark.copy(alpha = 0.7f)
                     )
                 }
             }
@@ -482,14 +481,14 @@ fun ScanCameraScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             CircularProgressIndicator(
-                                color = SurfaceWhite,
+                                color = OnDark,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(28.dp)
                             )
                             Text(
                                 "Opening photos…",
                                 style = AppType.BodySmall,
-                                color = SurfaceWhite
+                                color = OnDark
                             )
                         }
                     }
@@ -509,13 +508,13 @@ fun ScanCameraScreen(
                         Icon(
                             Icons.Rounded.Layers,
                             null,
-                            tint = SurfaceWhite,
+                            tint = OnDark,
                             modifier = Modifier.size(10.dp)
                         )
                         Text(
                             "${captured.size} PAGES",
                             style = AppType.MonoChip.copy(fontSize = 7.5.sp, letterSpacing = 0.7.sp),
-                            color = SurfaceWhite
+                            color = OnDark
                         )
                     }
                 }
@@ -528,7 +527,7 @@ fun ScanCameraScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator(
-                            color = SurfaceWhite,
+                            color = OnDark,
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(30.dp)
                         )
@@ -553,10 +552,10 @@ fun ScanCameraScreen(
                                 modifier = Modifier
                                     .size(54.dp, 66.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(SurfaceWhite.copy(alpha = 0.06f))
+                                    .background(OnDark.copy(alpha = 0.06f))
                                     .border(
                                         1.dp,
-                                        SurfaceWhite.copy(alpha = 0.14f),
+                                        OnDark.copy(alpha = 0.14f),
                                         RoundedCornerShape(12.dp)
                                     )
                                     .clickable { launchGallery() },
@@ -565,7 +564,7 @@ fun ScanCameraScreen(
                                 Icon(
                                     Icons.Rounded.Image,
                                     contentDescription = "Add from gallery",
-                                    tint = SurfaceWhite.copy(alpha = 0.65f),
+                                    tint = OnDark.copy(alpha = 0.65f),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -587,7 +586,7 @@ fun ScanCameraScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
-                        .background(SurfaceWhite)
+                        .background(OnDark)
                         .clickable(enabled = !importing && !capturing) {
                             finish(captured)
                         }
@@ -598,14 +597,14 @@ fun ScanCameraScreen(
                     Icon(
                         Icons.Rounded.PhotoCamera,
                         null,
-                        tint = Navy,
+                        tint = DarkBackground,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         "Analyse ${captured.size} page${if (captured.size == 1) "" else "s"}",
                         style = AppType.Button.copy(fontSize = 13.5.sp),
-                        color = Navy
+                        color = DarkBackground
                     )
                 }
             }
@@ -615,7 +614,7 @@ fun ScanCameraScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(SurfaceWhite.copy(alpha = 0.07f))
+                        .background(OnDark.copy(alpha = 0.07f))
                         .padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -629,7 +628,7 @@ fun ScanCameraScreen(
                     Text(
                         cameraError ?: "",
                         style = AppType.BodyTiny,
-                        color = SurfaceWhite.copy(alpha = 0.72f),
+                        color = OnDark.copy(alpha = 0.72f),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -677,7 +676,7 @@ fun ScanCameraScreen(
         Text(
             "Keep the page flat · English and Malayalam are read together",
             style = AppType.MonoSmall.copy(letterSpacing = 0.2.sp),
-            color = SurfaceWhite.copy(alpha = 0.35f),
+            color = OnDark.copy(alpha = 0.35f),
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()
@@ -702,11 +701,11 @@ private fun CameraCircleButton(
             .size(size)
             .clip(shape)
             .background(
-                if (active) SurfaceWhite.copy(alpha = 0.22f) else SurfaceWhite.copy(alpha = 0.1f)
+                if (active) OnDark.copy(alpha = 0.22f) else OnDark.copy(alpha = 0.1f)
             )
             .border(
                 1.dp,
-                if (active) SurfaceWhite.copy(alpha = 0.35f) else SurfaceWhite.copy(alpha = 0.16f),
+                if (active) OnDark.copy(alpha = 0.35f) else OnDark.copy(alpha = 0.16f),
                 shape
             )
             .clickable(onClick = onClick),
@@ -715,7 +714,7 @@ private fun CameraCircleButton(
         Icon(
             icon,
             contentDescription,
-            tint = if (active) SurfaceWhite else SurfaceWhite.copy(alpha = 0.78f),
+            tint = if (active) OnDark else OnDark.copy(alpha = 0.78f),
             modifier = Modifier.size(size * 0.4f)
         )
     }
@@ -733,12 +732,13 @@ private fun ViewfinderOverlay(active: Boolean) {
         ),
         label = "scanline"
     )
+    val accent = Indigo
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         val inset = 12.dp.toPx()
         val arm = 22.dp.toPx()
         val stroke = 2.dp.toPx()
-        val corner = SurfaceWhite.copy(alpha = 0.85f)
+        val corner = OnDark.copy(alpha = 0.85f)
         val left = inset
         val top = inset
         val right = size.width - inset
@@ -755,7 +755,7 @@ private fun ViewfinderOverlay(active: Boolean) {
         drawLine(corner, Offset(right, bottom), Offset(right, bottom - arm), stroke, StrokeCap.Round)
 
         // Rule-of-thirds guides, kept very faint so the page stays readable.
-        val guide = SurfaceWhite.copy(alpha = 0.08f)
+        val guide = OnDark.copy(alpha = 0.08f)
         drawLine(guide, Offset(size.width / 3f, top), Offset(size.width / 3f, bottom), 1.dp.toPx())
         drawLine(guide, Offset(size.width * 2f / 3f, top), Offset(size.width * 2f / 3f, bottom), 1.dp.toPx())
         drawLine(guide, Offset(left, size.height / 3f), Offset(right, size.height / 3f), 1.dp.toPx())
@@ -765,7 +765,7 @@ private fun ViewfinderOverlay(active: Boolean) {
             val y = top + (bottom - top) * sweep
             drawRect(
                 brush = Brush.verticalGradient(
-                    colors = listOf(Color.Transparent, Indigo.copy(alpha = 0.18f), Color.Transparent),
+                    colors = listOf(Color.Transparent, accent.copy(alpha = 0.18f), Color.Transparent),
                     startY = y - 20.dp.toPx(),
                     endY = y + 20.dp.toPx()
                 ),
@@ -777,7 +777,7 @@ private fun ViewfinderOverlay(active: Boolean) {
             )
             drawLine(
                 brush = Brush.horizontalGradient(
-                    colors = listOf(Color.Transparent, Indigo, Color(0xFF9C90FF), Indigo, Color.Transparent)
+                    colors = listOf(Color.Transparent, accent, Color(0xFF9C90FF), accent, Color.Transparent)
                 ),
                 start = Offset(left + 6.dp.toPx(), y),
                 end = Offset(right - 6.dp.toPx(), y),
@@ -810,33 +810,33 @@ private fun CameraFallback(
                 modifier = Modifier
                     .size(56.dp)
                     .clip(CircleShape)
-                    .background(SurfaceWhite.copy(alpha = 0.1f)),
+                    .background(OnDark.copy(alpha = 0.1f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Rounded.PhotoCamera,
                     null,
-                    tint = SurfaceWhite,
+                    tint = OnDark,
                     modifier = Modifier.size(24.dp)
                 )
             }
             Text(
                 title,
                 style = AppType.SectionTitle,
-                color = SurfaceWhite,
+                color = OnDark,
                 textAlign = TextAlign.Center
             )
             Text(
                 body,
                 style = AppType.BodySmall,
-                color = SurfaceWhite.copy(alpha = 0.6f),
+                color = OnDark.copy(alpha = 0.6f),
                 textAlign = TextAlign.Center
             )
             if (allowCamera != null) {
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(13.dp))
-                        .background(SurfaceWhite)
+                        .background(OnDark)
                         .clickable(onClick = allowCamera)
                         .padding(horizontal = 18.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -845,14 +845,14 @@ private fun CameraFallback(
                     Text(
                         "Allow camera",
                         style = AppType.ButtonSmall,
-                        color = Navy
+                        color = DarkBackground
                     )
                 }
             }
             Text(
                 "Import photos instead",
                 style = AppType.LabelSmallStrong,
-                color = SurfaceWhite.copy(alpha = 0.75f),
+                color = OnDark.copy(alpha = 0.75f),
                 modifier = Modifier
                     .clip(RoundedCornerShape(10.dp))
                     .clickable(onClick = onImport)
@@ -894,7 +894,7 @@ private fun ModeBar(
                         fontSize = 9.sp,
                         letterSpacing = 0.9.sp
                     ),
-                    color = if (selected) SurfaceWhite else SurfaceWhite.copy(alpha = 0.4f)
+                    color = if (selected) OnDark else OnDark.copy(alpha = 0.4f)
                 )
                 Box(
                     modifier = Modifier
@@ -918,7 +918,7 @@ private fun ShutterButton(
         modifier = Modifier
             .size(78.dp)
             .clip(CircleShape)
-            .background(SurfaceWhite.copy(alpha = 0.15f))
+            .background(OnDark.copy(alpha = 0.15f))
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -926,7 +926,7 @@ private fun ShutterButton(
             modifier = Modifier
                 .size(62.dp)
                 .clip(CircleShape)
-                .background(if (enabled) SurfaceWhite else SurfaceWhite.copy(alpha = 0.55f))
+                .background(if (enabled) OnDark else OnDark.copy(alpha = 0.55f))
         )
         if (count > 0) {
             Box(
@@ -940,7 +940,7 @@ private fun ShutterButton(
                 Text(
                     "$count",
                     style = AppType.MonoValue.copy(fontSize = 9.sp),
-                    color = SurfaceWhite
+                    color = OnDark
                 )
             }
         }
@@ -977,7 +977,7 @@ private fun CapturedThumb(
             Icon(
                 Icons.Rounded.Close,
                 contentDescription = "Remove page",
-                tint = SurfaceWhite,
+                tint = OnDark,
                 modifier = Modifier.size(10.dp)
             )
         }

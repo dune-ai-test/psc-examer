@@ -9,6 +9,8 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.padanam.psc.data.model.Lang
+import com.padanam.psc.data.model.ThemeMode
+import com.padanam.psc.data.model.ViewMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
@@ -31,9 +33,13 @@ data class AppSettings(
     val profileUpdatedAt: Long = 0L,
     val lastAccountId: String = "",
     val lastSavedSetId: String? = null,
-    val lastSavedAt: Long = 0L
+    val lastSavedAt: Long = 0L,
+    val themeMode: String = ThemeMode.SYSTEM,
+    val viewMode: String = ViewMode.ADMIN,
+    val offlineReadyAt: Long = 0L
 ) {
     val serverConfigured: Boolean get() = serverUrl.isNotBlank()
+    val offlineReady: Boolean get() = offlineReadyAt > 0L
 }
 
 class SettingsRepository(private val context: Context) {
@@ -53,6 +59,9 @@ class SettingsRepository(private val context: Context) {
         val lastAccountId = stringPreferencesKey("last_account_id")
         val lastSavedSetId = stringPreferencesKey("last_saved_set_id")
         val lastSavedAt = longPreferencesKey("last_saved_at")
+        val themeMode = stringPreferencesKey("theme_mode")
+        val viewMode = stringPreferencesKey("view_mode")
+        val offlineReadyAt = longPreferencesKey("offline_ready_at")
 
         /* Removed keys stay declared so old installs can be read without
            crashing and so the values can be erased on sign-out. */
@@ -80,7 +89,10 @@ class SettingsRepository(private val context: Context) {
                 profileUpdatedAt = prefs[Keys.profileUpdatedAt] ?: 0L,
                 lastAccountId = prefs[Keys.lastAccountId].orEmpty(),
                 lastSavedSetId = prefs[Keys.lastSavedSetId],
-                lastSavedAt = prefs[Keys.lastSavedAt] ?: 0L
+                lastSavedAt = prefs[Keys.lastSavedAt] ?: 0L,
+                themeMode = ThemeMode.normalize(prefs[Keys.themeMode]),
+                viewMode = ViewMode.normalize(prefs[Keys.viewMode]),
+                offlineReadyAt = prefs[Keys.offlineReadyAt] ?: 0L
             )
         }
 
@@ -121,6 +133,19 @@ class SettingsRepository(private val context: Context) {
         context.settingsDataStore.edit { it[Keys.autoSync] = enabled }
     }
 
+    suspend fun updateThemeMode(mode: String) {
+        context.settingsDataStore.edit { it[Keys.themeMode] = ThemeMode.normalize(mode) }
+    }
+
+    suspend fun updateViewMode(mode: String) {
+        context.settingsDataStore.edit { it[Keys.viewMode] = ViewMode.normalize(mode) }
+    }
+
+    /** Marks the current Room library as a complete, usable offline copy. */
+    suspend fun markOfflineReady() {
+        context.settingsDataStore.edit { it[Keys.offlineReadyAt] = System.currentTimeMillis() }
+    }
+
     /** Remembers which account owns the offline cache in Room. */
     suspend fun setAccountId(id: String) {
         context.settingsDataStore.edit { it[Keys.lastAccountId] = id.trim() }
@@ -135,7 +160,9 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.language] = Lang.EN
             prefs[Keys.dailyGoal] = 30
             prefs[Keys.reminders] = true
+            prefs[Keys.viewMode] = ViewMode.ADMIN
             prefs.remove(Keys.profileUpdatedAt)
+            prefs.remove(Keys.offlineReadyAt)
         }
     }
 
@@ -213,6 +240,8 @@ class SettingsRepository(private val context: Context) {
             prefs.remove(Keys.lastSyncMessage)
             prefs.remove(Keys.lastSavedSetId)
             prefs.remove(Keys.lastSavedAt)
+            prefs.remove(Keys.offlineReadyAt)
+            prefs[Keys.viewMode] = ViewMode.ADMIN
         }
     }
 }

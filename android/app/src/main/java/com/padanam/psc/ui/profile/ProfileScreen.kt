@@ -52,6 +52,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.padanam.psc.BuildConfig
 import com.padanam.psc.data.model.Lang
+import com.padanam.psc.data.model.ViewMode
 import com.padanam.psc.data.prefs.AppSettings
 import com.padanam.psc.ui.AppViewModel
 import com.padanam.psc.ui.components.AppTextField
@@ -74,6 +75,7 @@ import com.padanam.psc.ui.theme.Indigo
 import com.padanam.psc.ui.theme.IndigoSoft
 import com.padanam.psc.ui.theme.InkMuted
 import com.padanam.psc.ui.theme.Navy
+import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.SurfaceMuted
 import com.padanam.psc.ui.theme.SurfaceWhite
 import com.padanam.psc.ui.theme.Success
@@ -86,6 +88,7 @@ import java.time.LocalDate
 fun ProfileScreen(
     appVm: AppViewModel,
     canManage: Boolean,
+    realAdmin: Boolean,
     onOpenSettings: () -> Unit,
     onOpenAdmin: () -> Unit,
     onOpenAttempt: (String) -> Unit
@@ -97,6 +100,8 @@ fun ProfileScreen(
     val questionCount by appVm.questionCount.collectAsStateWithLifecycle()
     val syncOp by appVm.syncOp.collectAsStateWithLifecycle()
     val backupOp by appVm.backupOp.collectAsStateWithLifecycle()
+    val pendingChanges by appVm.pendingChanges.collectAsStateWithLifecycle()
+    val online by appVm.online.collectAsStateWithLifecycle()
 
     var editOpen by remember { mutableStateOf(false) }
     var languageOpen by remember { mutableStateOf(false) }
@@ -228,7 +233,7 @@ fun ProfileScreen(
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
-                                .background(SurfaceWhite.copy(alpha = 0.1f))
+                                .background(OnDark.copy(alpha = 0.1f))
                                 .padding(horizontal = 9.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
@@ -236,19 +241,19 @@ fun ProfileScreen(
                             Icon(
                                 if (settings.serverConfigured) Icons.Rounded.CloudDone else Icons.Rounded.Lock,
                                 null,
-                                tint = if (settings.serverConfigured) SuccessBright else SurfaceWhite.copy(alpha = 0.7f),
+                                tint = if (settings.serverConfigured) SuccessBright else OnDark.copy(alpha = 0.7f),
                                 modifier = Modifier.size(13.dp)
                             )
                             Text(
                                 "Account sync",
                                 style = AppType.MonoChip,
-                                color = SurfaceWhite
+                                color = OnDark
                             )
                         }
                         Text(
                             if (settings.serverConfigured) "CONNECTED" else "NOT SET UP",
                             style = AppType.MonoSmall.copy(letterSpacing = 0.5.sp),
-                            color = if (settings.serverConfigured) SuccessBright else SurfaceWhite.copy(alpha = 0.5f)
+                            color = if (settings.serverConfigured) SuccessBright else OnDark.copy(alpha = 0.5f)
                         )
                     }
                     Text(
@@ -258,7 +263,7 @@ fun ProfileScreen(
                             "Add the Padanam site address in Settings to sync this account."
                         },
                         style = AppType.BodySmall,
-                        color = SurfaceWhite.copy(alpha = 0.7f)
+                        color = OnDark.copy(alpha = 0.7f)
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -268,7 +273,7 @@ fun ProfileScreen(
                         Text(
                             if (settings.serverConfigured) "Last sync · $lastSync" else "Local only · ${sets.size} sets",
                             style = AppType.MonoSmall,
-                            color = SurfaceWhite.copy(alpha = 0.5f),
+                            color = OnDark.copy(alpha = 0.5f),
                             modifier = Modifier.weight(1f)
                         )
                         DarkCardButton(
@@ -283,9 +288,32 @@ fun ProfileScreen(
                         Text(
                             syncOp.message,
                             style = AppType.BodyTiny,
-                            color = if (syncOp.success) SuccessBright else SurfaceWhite.copy(alpha = 0.7f)
+                            color = if (syncOp.success) SuccessBright else OnDark.copy(alpha = 0.7f)
                         )
                     }
+                    Text(
+                        buildString {
+                            append(if (online) "Online" else "Offline")
+                            append(" · ")
+                            append(
+                                if (pendingChanges > 0) {
+                                    "$pendingChanges change${if (pendingChanges == 1) "" else "s"} waiting to sync"
+                                } else {
+                                    "everything is synced"
+                                }
+                            )
+                            append(" · ")
+                            append(
+                                if (settings.offlineReady) {
+                                    "offline copy ready"
+                                } else {
+                                    "download for offline use in Settings"
+                                }
+                            )
+                        },
+                        style = AppType.MonoSmall.copy(fontSize = 8.sp),
+                        color = OnDark.copy(alpha = 0.55f)
+                    )
                 }
             }
 
@@ -342,6 +370,27 @@ fun ProfileScreen(
                         value = "${settings.dailyGoal} questions",
                         onClick = { goalOpen = true }
                     )
+                    if (realAdmin) {
+                        ThinDivider()
+                        SettingsRow(
+                            label = "Admin view",
+                            value = if (settings.viewMode == ViewMode.LEARNER) {
+                                "Learner (read-only)"
+                            } else {
+                                "Admin"
+                            },
+                            trailing = {
+                                PadanamToggle(
+                                    checked = settings.viewMode == ViewMode.ADMIN,
+                                    onCheckedChange = { checked ->
+                                        appVm.setViewMode(
+                                            if (checked) ViewMode.ADMIN else ViewMode.LEARNER
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    }
                     if (canManage) {
                         ThinDivider()
                         SettingsRow(
