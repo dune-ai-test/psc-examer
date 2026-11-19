@@ -746,7 +746,7 @@ fun SettingsScreen(
                         if (status != null) {
                             Text(
                                 "${status.provider.ifBlank { "Provider" }} · " +
-                                    status.model.ifBlank { "model not reported" }",
+                                    status.model.ifBlank { "model not reported" },
                                 style = AppType.BodyTiny,
                                 color = Navy
                             )
