@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
@@ -20,12 +21,12 @@ class NetworkMonitor(context: Context) {
         context.applicationContext.getSystemService(ConnectivityManager::class.java)
 
     val online: Flow<Boolean> = callbackFlow {
-        fun current(): Boolean {
-            val network = manager?.activeNetwork ?: return false
-            val capabilities = manager.getNetworkCapabilities(network) ?: return false
-            return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        fun current(): Boolean = runCatching {
+            val network = manager?.activeNetwork ?: return@runCatching false
+            val capabilities = manager.getNetworkCapabilities(network) ?: return@runCatching false
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        }
+        }.getOrDefault(true)
 
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
@@ -47,7 +48,13 @@ class NetworkMonitor(context: Context) {
         }
 
         trySend(current())
-        manager?.registerDefaultNetworkCallback(callback)
+        try {
+            manager?.registerDefaultNetworkCallback(callback)
+        } catch (_: Exception) {
+            /* Some vendor builds reject the callback even with the normal
+               network permission. Leaving the app online lets individual
+               requests report their own errors instead of crashing launch. */
+        }
         awaitClose { runCatching { manager?.unregisterNetworkCallback(callback) } }
-    }.distinctUntilChanged()
+    }.catch { emit(true) }.distinctUntilChanged()
 }

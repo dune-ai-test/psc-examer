@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -84,19 +85,19 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     private val _authError = MutableStateFlow("")
     val authError = _authError.asStateFlow()
 
-    val sets = dao.observeSetSummaries().stateIn(
+    val sets = dao.observeSetSummaries().safeCache(emptyList()).stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
     )
 
-    val attempts = dao.observeAttempts().stateIn(
+    val attempts = dao.observeAttempts().safeCache(emptyList()).stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
     )
 
-    val activeExam = container.examStore.activeExam.stateIn(
+    val activeExam = container.examStore.activeExam.safeCache(null).stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), null
     )
 
-    val questionCount = dao.observeQuestionCount().stateIn(
+    val questionCount = dao.observeQuestionCount().safeCache(0).stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), 0
     )
 
@@ -108,7 +109,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         dao.observePendingSetCount(),
         dao.observePendingQuestionCount(),
         dao.observePendingAttemptCount()
-    ) { sets, questions, attempts -> sets + questions + attempts }.stateIn(
+    ) { sets, questions, attempts -> sets + questions + attempts }.safeCache(0).stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), 0
     )
 
@@ -144,11 +145,14 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun questions(setId: String): Flow<List<QuestionEntity>> = dao.observeQuestions(setId)
+    fun questions(setId: String): Flow<List<QuestionEntity>> =
+        dao.observeQuestions(setId).safeCache(emptyList())
 
-    fun setSummary(setId: String): Flow<SetSummary?> = dao.observeSetSummary(setId)
+    fun setSummary(setId: String): Flow<SetSummary?> =
+        dao.observeSetSummary(setId).safeCache(null)
 
-    fun attempt(attemptId: String): Flow<AttemptEntity?> = dao.observeAttempt(attemptId)
+    fun attempt(attemptId: String): Flow<AttemptEntity?> =
+        dao.observeAttempt(attemptId).safeCache(null)
 
     /** Decodes the self-contained answer snapshots stored on an attempt. */
     suspend fun answers(attemptId: String): List<AnswerRecord> = withContext(Dispatchers.IO) {
@@ -184,6 +188,9 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             } catch (_: Exception) {
                 /* Same offline-first behaviour. */
             }
+        } catch (_: Exception) {
+            /* A damaged preference file should show the sign-in screen, not
+               kill the process before the first frame. */
         } finally {
             _authReady.value = true
         }
@@ -868,6 +875,13 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         if (!user.isAdmin) return false
         return settingsRepo.current().viewMode != ViewMode.LEARNER
     }
+
+    /**
+     * A damaged local cache must never be able to throw from a flow that the
+     * UI collects on the main thread. Screens fall back to their empty state
+     * and the next sync can refill the library.
+     */
+    private fun <T> Flow<T>.safeCache(fallback: T): Flow<T> = catch { emit(fallback) }
 
     fun emit(event: UiEvent) {
         _events.tryEmit(event)

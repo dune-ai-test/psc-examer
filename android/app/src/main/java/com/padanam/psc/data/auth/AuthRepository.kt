@@ -1,6 +1,7 @@
 package com.padanam.psc.data.auth
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -10,9 +11,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import java.io.IOException
 
-private val Context.authDataStore by preferencesDataStore(name = "padanam_auth")
+private val Context.authDataStore by preferencesDataStore(
+    name = "padanam_auth",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 data class AuthUser(
     val id: String = "",
@@ -50,9 +53,7 @@ class AuthRepository(private val context: Context) {
     }
 
     val session: Flow<AuthSession?> = context.authDataStore.data
-        .catch { error ->
-            if (error is IOException) emit(emptyPreferences()) else throw error
-        }
+        .catch { emit(emptyPreferences()) }
         .map { prefs ->
             val token = prefs[Keys.token].orEmpty()
             if (token.isBlank()) return@map null

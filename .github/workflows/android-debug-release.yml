@@ -44,7 +44,7 @@ jobs:
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v1.4.0-debug.${{ github.run_number }}
+          TAG: v1.4.1-debug.${{ github.run_number }}
         run: |
           gh release create "$TAG" \
             "android/app/build/outputs/apk/debug/app-debug.apk" \

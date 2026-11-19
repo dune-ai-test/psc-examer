@@ -1,6 +1,7 @@
 package com.padanam.psc.data.prefs
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
@@ -15,9 +16,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import java.io.IOException
 
-private val Context.settingsDataStore by preferencesDataStore(name = "padanam_settings")
+private val Context.settingsDataStore by preferencesDataStore(
+    name = "padanam_settings",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 data class AppSettings(
     val name: String = "Maya",
@@ -71,9 +74,7 @@ class SettingsRepository(private val context: Context) {
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data
-        .catch { error ->
-            if (error is IOException) emit(emptyPreferences()) else throw error
-        }
+        .catch { emit(emptyPreferences()) }
         .map { prefs ->
             AppSettings(
                 name = prefs[Keys.name] ?: "Maya",

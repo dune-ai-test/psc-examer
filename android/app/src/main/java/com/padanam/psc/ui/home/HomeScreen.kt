@@ -192,8 +192,9 @@ fun HomeScreen(
                 }
             }
 
-            if (exam != null) {
-                item { ActiveExamCard(exam = exam!!, onResume = onResumeExam) }
+            val currentExam = exam
+            if (currentExam != null) {
+                item { ActiveExamCard(exam = currentExam, onResume = onResumeExam) }
             }
 
             if (showSaved && savedSet != null) {
