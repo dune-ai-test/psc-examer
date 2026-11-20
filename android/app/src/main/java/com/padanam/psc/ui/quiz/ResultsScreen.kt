@@ -51,7 +51,7 @@ import com.padanam.psc.ui.components.CircleAction
 import com.padanam.psc.ui.components.DarkGradientCard
 import com.padanam.psc.ui.components.EmptyStateCard
 import com.padanam.psc.ui.components.LegendDot
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.PrimaryButton
 import com.padanam.psc.ui.components.ResultChip
 import com.padanam.psc.ui.components.SectionHeading
@@ -105,7 +105,7 @@ fun ResultsScreen(
                 .fillMaxSize()
                 .background(Cloud)
         ) {
-            PadanamStatusBar()
+            TopSafeArea()
             TopBar(title = "Results", onBack = onHome)
             if (!waited) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -150,7 +150,7 @@ fun ResultsScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
         TopBar(
             title = "Results",
             leading = {

@@ -46,7 +46,7 @@ import com.padanam.psc.ui.components.ChoiceChip
 import com.padanam.psc.ui.components.EmptyStateCard
 import com.padanam.psc.ui.components.InfoNote
 import com.padanam.psc.ui.components.LanguageSwitch
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.PadanamToggle
 import com.padanam.psc.ui.components.PrimaryButton
 import com.padanam.psc.ui.components.RuleRow
@@ -133,7 +133,7 @@ fun ExamSetupScreen(
                 .fillMaxSize()
                 .background(Cloud)
         ) {
-            PadanamStatusBar()
+            TopSafeArea()
             TopBar(
                 title = if (mode == QuizMode.PRACTICE) "Practice" else "Mock exam",
                 onBack = onBack
@@ -175,7 +175,7 @@ fun ExamSetupScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
         TopBar(
             title = if (isExam) "Mock exam" else "Practice",
             onBack = onBack,

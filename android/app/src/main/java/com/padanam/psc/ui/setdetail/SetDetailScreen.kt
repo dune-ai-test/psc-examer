@@ -57,7 +57,7 @@ import com.padanam.psc.ui.components.LanguageSwitch
 import com.padanam.psc.ui.components.MonoChip
 import com.padanam.psc.ui.components.OptionPill
 import com.padanam.psc.ui.components.OptionVisual
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.QuestionText
 import com.padanam.psc.ui.components.ResultChip
 import com.padanam.psc.ui.components.SectionHeading
@@ -114,7 +114,7 @@ fun SetDetailScreen(
                 .fillMaxSize()
                 .background(Cloud)
         ) {
-            PadanamStatusBar()
+            TopSafeArea()
             TopBar(title = "Question set", onBack = onBack)
             if (!waited) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -144,7 +144,7 @@ fun SetDetailScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
         TopBar(
             title = "Question set",
             onBack = onBack,

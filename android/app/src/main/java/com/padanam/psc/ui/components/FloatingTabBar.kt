@@ -31,7 +31,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.padanam.psc.ui.theme.AppType
-import com.padanam.psc.ui.theme.Cloud
 import com.padanam.psc.ui.theme.DMSans
 import com.padanam.psc.ui.theme.IconMuted
 import com.padanam.psc.ui.theme.Indigo
@@ -49,6 +48,9 @@ enum class MainTab(
     Profile("profile", "Profile", Icons.Rounded.Person)
 }
 
+/** Scroll padding that keeps the last list item clear of the floating bar. */
+val FloatingTabBarSpace = 132.dp
+
 @Composable
 fun FloatingTabBar(
     selected: String,
@@ -59,7 +61,6 @@ fun FloatingTabBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(Cloud)
             .navigationBarsPadding()
             .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 14.dp)
     ) {

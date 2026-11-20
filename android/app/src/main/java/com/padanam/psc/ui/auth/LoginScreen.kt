@@ -35,7 +35,7 @@ import com.padanam.psc.ui.AppViewModel
 import com.padanam.psc.ui.components.AppTextField
 import com.padanam.psc.ui.components.BrandMark
 import com.padanam.psc.ui.components.InfoNote
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.PrimaryButton
 import com.padanam.psc.ui.theme.AppType
 import com.padanam.psc.ui.theme.Cloud
@@ -64,7 +64,7 @@ fun LoginScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 28.dp, bottom = 32.dp),

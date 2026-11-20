@@ -54,7 +54,7 @@ import com.padanam.psc.ui.components.EmptyStateCard
 import com.padanam.psc.ui.components.LanguageSwitch
 import com.padanam.psc.ui.components.OptionPill
 import com.padanam.psc.ui.components.OptionVisual
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.QuestionText
 import com.padanam.psc.ui.components.ResultChip
 import com.padanam.psc.ui.components.TopBar
@@ -110,7 +110,7 @@ fun ReviewScreen(
                 .fillMaxSize()
                 .background(Cloud)
         ) {
-            PadanamStatusBar()
+            TopSafeArea()
             TopBar(title = "Review", onBack = onBack)
             if (!waited) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -150,7 +150,7 @@ fun ReviewScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
         TopBar(
             title = "Answer review",
             onBack = onBack,

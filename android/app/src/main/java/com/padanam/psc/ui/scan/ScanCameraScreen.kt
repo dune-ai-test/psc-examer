@@ -80,7 +80,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.padanam.psc.AppContainer
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.theme.AppType
 import com.padanam.psc.ui.theme.Danger
 import com.padanam.psc.ui.theme.DarkBackground
@@ -358,7 +358,7 @@ fun ScanCameraScreen(
             .fillMaxSize()
             .background(DarkBackground)
     ) {
-        PadanamStatusBar(dark = true)
+        TopSafeArea()
 
         Box(
             modifier = Modifier

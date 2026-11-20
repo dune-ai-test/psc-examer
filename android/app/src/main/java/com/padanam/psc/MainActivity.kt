@@ -11,7 +11,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
@@ -43,9 +45,16 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        window.statusBarColor = Color.TRANSPARENT
-        window.navigationBarColor = Color.TRANSPARENT
+        // Draw edge to edge with transparent system bars. The status bar itself
+        // stays hidden; the navigation bar shows the screen behind it instead
+        // of drawing an opaque strip.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT)
+        )
+        // SystemBarStyle.auto enables Android's navigation-bar contrast scrim,
+        // which paints a translucent light band behind the bar. The app draws
+        // its own background edge to edge, so turn the scrim off.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
         }

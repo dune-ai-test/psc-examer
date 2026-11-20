@@ -1,6 +1,8 @@
 package com.padanam.psc.ui
 
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -11,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -151,10 +154,17 @@ private fun SignedInRoot(
             }
         }
     ) { innerPadding ->
+        val layoutDirection = LocalLayoutDirection.current
+        // The tab bar floats over the page, so the screen background extends
+        // behind it instead of leaving a solid strip around the pill.
         NavHost(
             navController = navController,
             startDestination = Routes.HOME,
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier.padding(
+                start = innerPadding.calculateStartPadding(layoutDirection),
+                top = innerPadding.calculateTopPadding(),
+                end = innerPadding.calculateEndPadding(layoutDirection)
+            )
         ) {
             composable(Routes.HOME) {
                 HomeScreen(

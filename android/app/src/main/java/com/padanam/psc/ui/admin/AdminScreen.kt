@@ -49,7 +49,7 @@ import com.padanam.psc.data.remote.AdminUser
 import com.padanam.psc.ui.components.AppTextField
 import com.padanam.psc.ui.components.InfoNote
 import com.padanam.psc.ui.components.LightButton
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.PrimaryButton
 import com.padanam.psc.ui.components.SectionHeading
 import com.padanam.psc.ui.components.TopBar
@@ -89,7 +89,7 @@ fun AdminScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
         TopBar(title = "Admin console", onBack = onBack)
         LazyColumn(
             modifier = Modifier.fillMaxSize(),

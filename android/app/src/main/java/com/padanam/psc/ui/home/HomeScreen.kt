@@ -61,9 +61,10 @@ import com.padanam.psc.ui.AppViewModel
 import com.padanam.psc.ui.components.Avatar
 import com.padanam.psc.ui.components.DarkCardButton
 import com.padanam.psc.ui.components.DarkGradientCard
+import com.padanam.psc.ui.components.FloatingTabBarSpace
 import com.padanam.psc.ui.components.InfoNote
 import com.padanam.psc.ui.components.LightButton
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.PadanamToggle
 import com.padanam.psc.ui.components.PageHeader
 import com.padanam.psc.ui.components.ProgressTrack
@@ -129,14 +130,14 @@ fun HomeScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 start = 20.dp,
                 end = 20.dp,
                 top = 6.dp,
-                bottom = 18.dp
+                bottom = FloatingTabBarSpace
             ),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {

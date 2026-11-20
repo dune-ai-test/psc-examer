@@ -1,5 +1,6 @@
 package com.padanam.psc.ui.theme
 
+import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -8,7 +9,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
 import com.padanam.psc.data.model.ThemeMode
 
 private val PadanamShapes = Shapes(
@@ -28,6 +32,17 @@ fun PadanamTheme(
         ThemeMode.DARK -> true
         ThemeMode.LIGHT -> false
         else -> isSystemInDarkTheme()
+    }
+
+    // Keep the transparent system nav bar's icons readable against the app
+    // background, and stop OEMs adding a light contrast scrim behind them.
+    val context = LocalContext.current
+    SideEffect {
+        val window = (context as? Activity)?.window ?: return@SideEffect
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
     }
 
     val colors = if (dark) {

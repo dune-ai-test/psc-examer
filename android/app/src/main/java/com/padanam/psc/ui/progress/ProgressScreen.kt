@@ -48,9 +48,10 @@ import com.padanam.psc.ui.AppViewModel
 import com.padanam.psc.ui.components.AttemptRow
 import com.padanam.psc.ui.components.CircleAction
 import com.padanam.psc.ui.components.EmptyStateCard
+import com.padanam.psc.ui.components.FloatingTabBarSpace
 import com.padanam.psc.ui.components.InfoNote
 import com.padanam.psc.ui.components.PageHeader
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.ProgressTrack
 import com.padanam.psc.ui.components.SectionHeading
 import com.padanam.psc.ui.components.StatTile
@@ -130,10 +131,10 @@ fun ProgressScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 18.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = FloatingTabBarSpace),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             item {

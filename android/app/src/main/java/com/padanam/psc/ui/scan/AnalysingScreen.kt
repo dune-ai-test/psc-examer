@@ -51,7 +51,7 @@ import com.padanam.psc.ui.components.CircleAction
 import com.padanam.psc.ui.components.EmptyStateCard
 import com.padanam.psc.ui.components.LightButton
 import com.padanam.psc.ui.components.MonoChip
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.PrimaryButton
 import com.padanam.psc.ui.components.ProgressTrack
 import com.padanam.psc.ui.components.ThinDivider
@@ -130,7 +130,7 @@ fun AnalysingScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
         TopBar(
             title = when {
                 isDone -> "Scan saved"

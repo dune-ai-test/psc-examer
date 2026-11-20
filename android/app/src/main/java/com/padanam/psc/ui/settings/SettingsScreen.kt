@@ -58,7 +58,7 @@ import com.padanam.psc.ui.components.AppTextField
 import com.padanam.psc.ui.components.ChoiceChip
 import com.padanam.psc.ui.components.InfoNote
 import com.padanam.psc.ui.components.LightButton
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.PadanamToggle
 import com.padanam.psc.ui.components.PrimaryButton
 import com.padanam.psc.ui.components.SettingsRow
@@ -185,7 +185,7 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
         TopBar(title = "Settings", onBack = onBack)
         LazyColumn(
             modifier = Modifier.fillMaxSize(),

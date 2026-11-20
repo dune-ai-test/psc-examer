@@ -55,7 +55,7 @@ import com.padanam.psc.ui.components.LanguageSwitch
 import com.padanam.psc.ui.components.LegendDot
 import com.padanam.psc.ui.components.OptionPill
 import com.padanam.psc.ui.components.OptionVisual
-import com.padanam.psc.ui.components.PadanamStatusBar
+import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.ProgressTrack
 import com.padanam.psc.ui.components.QuestionText
 import com.padanam.psc.ui.components.TopBar
@@ -110,7 +110,7 @@ fun QuizScreen(
                 .fillMaxSize()
                 .background(Cloud)
         ) {
-            PadanamStatusBar()
+            TopSafeArea()
             TopBar(title = "Attempt", onBack = onLeave)
             Box(modifier = Modifier.padding(20.dp)) {
                 EmptyStateCard(
@@ -131,7 +131,7 @@ fun QuizScreen(
                 .fillMaxSize()
                 .background(Cloud)
         ) {
-            PadanamStatusBar()
+            TopSafeArea()
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Indigo, strokeWidth = 2.dp)
             }
@@ -154,7 +154,7 @@ fun QuizScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        PadanamStatusBar()
+        TopSafeArea()
 
         Box(
             modifier = Modifier
