@@ -17,8 +17,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import com.padanam.psc.ui.AppViewModel
 import com.padanam.psc.ui.PadanamRoot
 import com.padanam.psc.ui.theme.PadanamTheme
@@ -45,9 +43,11 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Draw edge to edge with transparent system bars. The status bar itself
-        // stays hidden; the navigation bar shows the screen behind it instead
-        // of drawing an opaque strip.
+        // Draw edge to edge with transparent system bars. The real system
+        // status bar (clock, battery, notifications) stays visible, and the
+        // app reserves its height in TopSafeArea so content never sits under
+        // it. The navigation bar shows the screen behind it instead of drawing
+        // an opaque strip.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT)
@@ -72,6 +72,13 @@ class MainActivity : ComponentActivity() {
 
     private fun showCrashReport(report: String) {
         fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+        // This plain white screen is not composed inside PadanamTheme, so set
+        // the system bar icons explicitly to stay readable on white.
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -149,17 +156,5 @@ class MainActivity : ComponentActivity() {
             )
         }
         setContentView(scroll)
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemBars()
-    }
-
-    private fun hideSystemBars() {
-        val controller = WindowCompat.getInsetsController(window, window.decorView)
-        controller.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        controller.hide(WindowInsetsCompat.Type.statusBars())
     }
 }

@@ -135,22 +135,27 @@ fun ProfileScreen(
             .background(Cloud)
     ) {
         TopSafeArea()
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 14.dp)
+        ) {
+            PageHeader(eyebrow = "Account", title = "Profile") {
+                CircleAction(
+                    icon = Icons.Rounded.Settings,
+                    contentDescription = "Settings",
+                    onClick = onOpenSettings,
+                    size = 40.dp
+                )
+            }
+        }
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = FloatingTabBarSpace),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 2.dp, bottom = FloatingTabBarSpace),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            item {
-                PageHeader(eyebrow = "Account", title = "Profile") {
-                    CircleAction(
-                        icon = Icons.Rounded.Settings,
-                        contentDescription = "Settings",
-                        onClick = onOpenSettings,
-                        size = 40.dp
-                    )
-                }
-            }
-
             item {
                 Column(
                     modifier = Modifier

@@ -34,7 +34,7 @@ fun PadanamTheme(
         else -> isSystemInDarkTheme()
     }
 
-    // Keep the transparent system nav bar's icons readable against the app
+    // Keep the transparent system bars' icons readable against the app
     // background, and stop OEMs adding a light contrast scrim behind them.
     val context = LocalContext.current
     SideEffect {

@@ -131,68 +131,69 @@ fun HomeScreen(
             .background(Cloud)
     ) {
         TopSafeArea()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(Format.eyebrow(), style = AppType.Eyebrow, color = InkMuted)
+                Text(
+                    if (newUser) "Welcome, $firstName" else "${Format.greeting()}, $firstName",
+                    style = AppType.HeroTitle.copy(fontSize = 22.sp, lineHeight = 28.sp),
+                    color = Navy,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceWhite)
+                        .clickable { remindersDialog = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Rounded.Notifications,
+                        contentDescription = "Study reminders",
+                        tint = Navy,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    if (settings.reminders) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 10.dp, end = 10.dp)
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(Indigo)
+                        )
+                    }
+                }
+                Box(modifier = Modifier.clickable(onClick = onOpenProfile)) {
+                    Avatar(name = settings.name, size = 42.dp, fontSize = 13)
+                }
+            }
+        }
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 start = 20.dp,
                 end = 20.dp,
-                top = 6.dp,
+                top = 2.dp,
                 bottom = FloatingTabBarSpace
             ),
             verticalArrangement = Arrangement.spacedBy(22.dp)
         ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(Format.eyebrow(), style = AppType.Eyebrow, color = InkMuted)
-                        Text(
-                            if (newUser) "Welcome, $firstName" else "${Format.greeting()}, $firstName",
-                            style = AppType.HeroTitle.copy(fontSize = 22.sp, lineHeight = 28.sp),
-                            color = Navy,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(SurfaceWhite)
-                                .clickable { remindersDialog = true },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Rounded.Notifications,
-                                contentDescription = "Study reminders",
-                                tint = Navy,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            if (settings.reminders) {
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(top = 10.dp, end = 10.dp)
-                                        .size(5.dp)
-                                        .clip(CircleShape)
-                                        .background(Indigo)
-                                )
-                            }
-                        }
-                        Box(modifier = Modifier.clickable(onClick = onOpenProfile)) {
-                            Avatar(name = settings.name, size = 42.dp, fontSize = 13)
-                        }
-                    }
-                }
-            }
-
             val currentExam = exam
             if (currentExam != null) {
                 item { ActiveExamCard(exam = currentExam, onResume = onResumeExam) }

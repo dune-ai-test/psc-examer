@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.AlertDialog
@@ -249,7 +250,49 @@ fun SetDetailScreen(
                 }
             }
 
-            if (questions.isNotEmpty()) {
+            if (questions.isNotEmpty() && !canManage) {
+                /* A learner must not see the question text, options or the
+                   correct-answer marker before attempting the set. Showing
+                   them here would make every practice score meaningless. */
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(SurfaceWhite)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(9.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .clip(CircleShape)
+                                    .background(IndigoSoft),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Lock,
+                                    null,
+                                    tint = Indigo,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Text("Questions hidden", style = AppType.SectionTitle, color = Navy)
+                        }
+                        Text(
+                            "Practice and mock exams ask the ${questions.size} questions in " +
+                                "this set. Answers and explanations stay hidden until you " +
+                                "finish an attempt, so opening the set never gives them away.",
+                            style = AppType.BodySmall,
+                            color = InkMuted
+                        )
+                    }
+                }
+            } else if (questions.isNotEmpty()) {
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),

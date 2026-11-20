@@ -127,38 +127,43 @@ fun LibraryScreen(
             .background(Cloud)
     ) {
         TopSafeArea()
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = FloatingTabBarSpace),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 14.dp)
         ) {
-            item {
-                PageHeader(eyebrow = "Your question bank", title = "Library") {
-                    if (canScan) {
-                        CircleAction(
-                            icon = Icons.Rounded.Add,
-                            contentDescription = "Create question set",
-                            onClick = { createOpen = true },
-                            size = 40.dp
-                        )
-                    }
+            PageHeader(eyebrow = "Your question bank", title = "Library") {
+                if (canScan) {
                     CircleAction(
-                        icon = Icons.Rounded.Search,
-                        contentDescription = "Clear search",
-                        onClick = { query = "" },
+                        icon = Icons.Rounded.Add,
+                        contentDescription = "Create question set",
+                        onClick = { createOpen = true },
                         size = 40.dp
                     )
-                    CircleAction(
-                        icon = Icons.Rounded.Tune,
-                        contentDescription = "Subject filters",
-                        onClick = { showSubjects = !showSubjects },
-                        size = 40.dp,
-                        container = if (showSubjects) IndigoSoft else SurfaceWhite,
-                        tint = if (showSubjects) Indigo else Navy
-                    )
                 }
+                CircleAction(
+                    icon = Icons.Rounded.Search,
+                    contentDescription = "Clear search",
+                    onClick = { query = "" },
+                    size = 40.dp
+                )
+                CircleAction(
+                    icon = Icons.Rounded.Tune,
+                    contentDescription = "Subject filters",
+                    onClick = { showSubjects = !showSubjects },
+                    size = 40.dp,
+                    container = if (showSubjects) IndigoSoft else SurfaceWhite,
+                    tint = if (showSubjects) Indigo else Navy
+                )
             }
-
+        }
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 2.dp, bottom = FloatingTabBarSpace),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
             item {
                 SearchField(
                     value = query,
