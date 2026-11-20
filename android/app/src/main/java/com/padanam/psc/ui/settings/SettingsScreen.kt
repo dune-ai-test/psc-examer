@@ -82,10 +82,12 @@ import com.padanam.psc.util.Format
 fun SettingsScreen(
     appVm: AppViewModel,
     onBack: () -> Unit,
+    onOpenAccounts: () -> Unit,
     onOpenAdmin: () -> Unit
 ) {
     val settings by appVm.settings.collectAsStateWithLifecycle()
     val session by appVm.session.collectAsStateWithLifecycle()
+    val savedSessions by appVm.savedSessions.collectAsStateWithLifecycle()
     val syncOp by appVm.syncOp.collectAsStateWithLifecycle()
     val backupOp by appVm.backupOp.collectAsStateWithLifecycle()
     val diagnostics by appVm.diagnostics.collectAsStateWithLifecycle()
@@ -117,8 +119,15 @@ fun SettingsScreen(
             title = { Text("Sign out?", style = AppType.Question, color = Navy) },
             text = {
                 Text(
-                    "Your account stays on the server. The offline copy on this phone is cleared " +
-                        "so the next person cannot open your library.",
+                    if (savedSessions.size > 1) {
+                        "This removes only @${user?.username.orEmpty()} from this phone. " +
+                            "Your other saved login opens automatically. The offline copy " +
+                            "of this account is cleared, so the next person cannot open its library."
+                    } else {
+                        "Your account stays on the server. The offline copy on this phone is " +
+                            "cleared so the next person cannot open your library. You'll return " +
+                            "to the sign-in screen."
+                    },
                     style = AppType.BodySmall,
                     color = InkMuted
                 )
@@ -289,6 +298,16 @@ fun SettingsScreen(
                             onClick = onOpenAdmin
                         )
                     }
+                    ThinDivider()
+                    SettingsRow(
+                        label = "Switch account",
+                        value = if (savedSessions.size > 1) {
+                            "${savedSessions.size} saved"
+                        } else {
+                            "Add a learner"
+                        },
+                        onClick = onOpenAccounts
+                    )
                     LightButton(
                         text = "Sign out",
                         onClick = { signOutOpen = true },

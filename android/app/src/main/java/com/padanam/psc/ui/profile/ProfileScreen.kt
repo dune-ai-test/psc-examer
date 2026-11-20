@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Verified
 import androidx.compose.material3.AlertDialog
@@ -91,11 +92,13 @@ fun ProfileScreen(
     canManage: Boolean,
     realAdmin: Boolean,
     onOpenSettings: () -> Unit,
+    onOpenAccounts: () -> Unit,
     onOpenAdmin: () -> Unit,
     onOpenAttempt: (String) -> Unit
 ) {
     val settings by appVm.settings.collectAsStateWithLifecycle()
     val session by appVm.session.collectAsStateWithLifecycle()
+    val savedSessions by appVm.savedSessions.collectAsStateWithLifecycle()
     val sets by appVm.sets.collectAsStateWithLifecycle()
     val attempts by appVm.attempts.collectAsStateWithLifecycle()
     val questionCount by appVm.questionCount.collectAsStateWithLifecycle()
@@ -192,6 +195,21 @@ fun ProfileScreen(
                                 "Personal study space · $languageValue",
                                 style = AppType.BodyTiny,
                                 color = InkMuted
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(IndigoSoft)
+                                .clickable(onClick = onOpenAccounts),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.SwapHoriz,
+                                contentDescription = "Switch account",
+                                tint = Indigo,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                         Box(
@@ -332,6 +350,16 @@ fun ProfileScreen(
                         SettingsRow(
                             label = "Account",
                             value = "@${account.username} · ${if (account.isAdmin) "Admin" else "Learner"}"
+                        )
+                        ThinDivider()
+                        SettingsRow(
+                            label = "Switch account",
+                            value = if (savedSessions.size > 1) {
+                                "${savedSessions.size} saved"
+                            } else {
+                                "Add or switch"
+                            },
+                            onClick = onOpenAccounts
                         )
                         ThinDivider()
                     }

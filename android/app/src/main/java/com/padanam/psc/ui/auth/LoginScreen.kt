@@ -32,11 +32,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.padanam.psc.ui.AppViewModel
+import com.padanam.psc.ui.accounts.SavedAccountRow
 import com.padanam.psc.ui.components.AppTextField
 import com.padanam.psc.ui.components.BrandMark
 import com.padanam.psc.ui.components.InfoNote
+import com.padanam.psc.ui.components.TopBar
 import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.PrimaryButton
+import com.padanam.psc.ui.components.ThinDivider
 import com.padanam.psc.ui.theme.AppType
 import com.padanam.psc.ui.theme.Cloud
 import com.padanam.psc.ui.theme.Danger
@@ -50,10 +53,14 @@ import com.padanam.psc.ui.theme.SurfaceWhite
 @Composable
 fun LoginScreen(
     appVm: AppViewModel,
-    initialServer: String
+    initialServer: String,
+    addMode: Boolean = false,
+    onBack: (() -> Unit)? = null
 ) {
     val busy by appVm.authBusy.collectAsStateWithLifecycle()
     val error by appVm.authError.collectAsStateWithLifecycle()
+    val savedSessions by appVm.savedSessions.collectAsStateWithLifecycle()
+    val accountBusy by appVm.accountBusy.collectAsStateWithLifecycle()
 
     var server by rememberSaveable(initialServer) { mutableStateOf(initialServer) }
     var username by rememberSaveable { mutableStateOf("") }
@@ -64,25 +71,71 @@ fun LoginScreen(
             .fillMaxSize()
             .background(Cloud)
     ) {
-        TopSafeArea()
+        if (addMode && onBack != null) {
+            TopSafeArea()
+            TopBar(title = "Add account", onBack = onBack)
+        } else {
+            TopSafeArea()
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 28.dp, bottom = 32.dp),
+            contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    BrandMark(size = 48.dp)
+                    if (!addMode) {
+                        BrandMark(size = 48.dp)
+                    }
                     Text(
-                        "Padanam",
-                        style = AppType.HeroTitle.copy(fontSize = 34.sp),
+                        if (addMode) "Add account" else "Padanam",
+                        style = AppType.HeroTitle.copy(fontSize = if (addMode) 28.sp else 34.sp),
                         color = Navy
                     )
                     Text(
-                        "Sign in to open your question library. Your account is the same one used on the Padanam website.",
+                        if (addMode) {
+                            "Sign in as a learner or another administrator. Your current " +
+                                "account stays saved on this phone."
+                        } else {
+                            "Sign in to open your question library. Your account is the same " +
+                                "one used on the Padanam website."
+                        },
                         style = AppType.BodySmall,
                         color = InkMuted
                     )
+                }
+            }
+
+            if (!addMode && savedSessions.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text(
+                            "SAVED ON THIS PHONE",
+                            style = AppType.Eyebrow,
+                            color = InkMuted
+                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(SurfaceWhite)
+                        ) {
+                            savedSessions.forEachIndexed { index, saved ->
+                                SavedAccountRow(
+                                    session = saved,
+                                    active = false,
+                                    busy = accountBusy,
+                                    onClick = { appVm.switchAccount(saved.key) }
+                                )
+                                if (index != savedSessions.lastIndex) ThinDivider()
+                            }
+                        }
+                        Text(
+                            "Tap an account to open it without a password.",
+                            style = AppType.BodyTiny,
+                            color = InkMuted
+                        )
+                    }
                 }
             }
 
@@ -111,7 +164,11 @@ fun LoginScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text("Account", style = AppType.SectionTitle, color = Navy)
                             Text(
-                                "Use the username your admin created.",
+                                if (addMode) {
+                                    "Use the username and password of the account to add."
+                                } else {
+                                    "Use the username your admin created."
+                                },
                                 style = AppType.BodyTiny,
                                 color = InkMuted
                             )
@@ -184,11 +241,23 @@ fun LoginScreen(
                 )
             }
 
-            item {
-                InfoNote(
-                    text = "Learners see the sets the administrator assigns. Accounts, sets and scores sync through your Padanam workspace; this phone keeps an offline copy.",
-                    icon = Icons.Rounded.Lock
-                )
+            if (addMode) {
+                item {
+                    InfoNote(
+                        text = "After you sign in, this account is added to the switcher. " +
+                            "Open Profile → Accounts to move between saved logins.",
+                        icon = Icons.Rounded.Lock
+                    )
+                }
+            } else {
+                item {
+                    InfoNote(
+                        text = "Learners see the sets the administrator assigns. Accounts, sets " +
+                            "and scores sync through your Padanam workspace; this phone keeps an " +
+                            "offline copy.",
+                        icon = Icons.Rounded.Lock
+                    )
+                }
             }
         }
     }

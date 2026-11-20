@@ -26,6 +26,7 @@ import com.padanam.psc.AppContainer
 import com.padanam.psc.data.model.QuizMode
 import com.padanam.psc.data.model.ViewMode
 import com.padanam.psc.ui.admin.AdminScreen
+import com.padanam.psc.ui.accounts.AccountsScreen
 import com.padanam.psc.ui.auth.AuthLoadingScreen
 import com.padanam.psc.ui.auth.LoginScreen
 import com.padanam.psc.ui.components.FloatingTabBar
@@ -51,6 +52,8 @@ object Routes {
     const val PROGRESS = "progress"
     const val PROFILE = "profile"
     const val SETTINGS = "settings"
+    const val ACCOUNTS = "accounts"
+    const val ADD_ACCOUNT = "addaccount"
     const val ADMIN = "admin"
     const val SCAN = "scan"
     const val ANALYSING = "analysing"
@@ -86,13 +89,14 @@ fun PadanamRoot(
             appVm = appVm,
             initialServer = settings.serverUrl
         )
-        else -> key(account.user.id) {
+        else -> key(account.key) {
             val adminView = account.user.isAdmin && settings.viewMode != ViewMode.LEARNER
             SignedInRoot(
                 container = container,
                 appVm = appVm,
                 admin = adminView,
-                realAdmin = account.user.isAdmin
+                realAdmin = account.user.isAdmin,
+                serverUrl = settings.serverUrl
             )
         }
     }
@@ -103,7 +107,8 @@ private fun SignedInRoot(
     container: AppContainer,
     appVm: AppViewModel,
     admin: Boolean,
-    realAdmin: Boolean
+    realAdmin: Boolean,
+    serverUrl: String
 ) {
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -207,6 +212,7 @@ private fun SignedInRoot(
                     canManage = admin,
                     realAdmin = realAdmin,
                     onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                    onOpenAccounts = { navController.navigate(Routes.ACCOUNTS) },
                     onOpenAdmin = { navController.navigate(Routes.ADMIN) },
                     onOpenAttempt = { navController.navigate(Routes.review(it)) }
                 )
@@ -216,7 +222,25 @@ private fun SignedInRoot(
                 SettingsScreen(
                     appVm = appVm,
                     onBack = { navController.popBackStack() },
+                    onOpenAccounts = { navController.navigate(Routes.ACCOUNTS) },
                     onOpenAdmin = { navController.navigate(Routes.ADMIN) }
+                )
+            }
+
+            composable(Routes.ACCOUNTS) {
+                AccountsScreen(
+                    appVm = appVm,
+                    onBack = { navController.popBackStack() },
+                    onAddAccount = { navController.navigate(Routes.ADD_ACCOUNT) }
+                )
+            }
+
+            composable(Routes.ADD_ACCOUNT) {
+                LoginScreen(
+                    appVm = appVm,
+                    initialServer = serverUrl,
+                    addMode = true,
+                    onBack = { navController.popBackStack() }
                 )
             }
 

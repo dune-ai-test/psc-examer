@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.padanam.psc.AppContainer
+import com.padanam.psc.data.auth.AuthSession
 import com.padanam.psc.data.local.AttemptEntity
 import com.padanam.psc.data.local.QuestionEntity
 import com.padanam.psc.data.model.ActiveExam
@@ -37,6 +38,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -76,6 +79,11 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope, SharingStarted.WhileSubscribed(5_000), null
     )
 
+    /** Every login saved on this phone, in the order it was added. */
+    val savedSessions = container.authRepository.sessions.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
+    )
+
     private val _authReady = MutableStateFlow(false)
     val authReady = _authReady.asStateFlow()
 
@@ -84,6 +92,16 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
 
     private val _authError = MutableStateFlow("")
     val authError = _authError.asStateFlow()
+
+    private val _accountBusy = MutableStateFlow(false)
+    val accountBusy = _accountBusy.asStateFlow()
+
+    /**
+     * Serialises Room writes with session changes. Without it a background
+     * sync started for one account could finish after a switch and write that
+     * account's sets under the next account.
+     */
+    private val syncMutex = Mutex()
 
     val sets = dao.observeSetSummaries().safeCache(emptyList()).stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
@@ -164,24 +182,46 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
 
     private suspend fun restoreSession() {
         try {
-            val stored = container.authRepository.current()
-            if (stored == null) return
+            container.authRepository.pruneExpired()
+            val stored = container.authRepository.current() ?: return
+            val settings = settingsRepo.current()
+            val base = stored.serverUrl.ifBlank { settings.serverUrl }
+
+            /* Room belongs to lastAccountId. If the active account changed while
+               the app was not running, start from an empty library instead of
+               showing another account's sets. */
+            if (settings.lastAccountId.isNotBlank() && settings.lastAccountId != stored.user.id) {
+                resetLocalWorkspace()
+            }
             settingsRepo.setAccountId(stored.user.id)
-            if (stored.expired()) {
-                container.authRepository.clear()
-                return
-            }
-            val base = settingsRepo.current().serverUrl
-            if (base.isBlank()) {
-                container.authRepository.clear()
-                return
-            }
+            settingsRepo.clearLegacySecrets()
+
+            if (base.isBlank()) return
             try {
                 val user = container.serverApi.session(base, stored.token)
-                container.authRepository.save(stored.token, user, stored.expiresAt)
+                container.authRepository.save(stored.token, user, stored.expiresAt, base)
             } catch (error: ServerException) {
                 if (error.expired || error.statusCode == 401) {
-                    container.authRepository.clear()
+                    /* Drop only this login. Another saved account becomes
+                       active automatically, if there is one. */
+                    resetLocalWorkspace()
+                    val next = container.authRepository.remove(stored.key)
+                    if (next == null) return
+                    settingsRepo.setAccountId(next.user.id)
+                    val nextBase = next.serverUrl.ifBlank { base }
+                    if (nextBase.isNotBlank()) settingsRepo.updateServerUrl(nextBase)
+                    if (nextBase.isNotBlank() &&
+                        runCatching { container.networkMonitor.online.first() }.getOrDefault(false)
+                    ) {
+                        val outcome = syncMutex.withLock {
+                            container.cloudSyncRepository.sync(
+                                nextBase,
+                                next,
+                                settingsRepo.current()
+                            )
+                        }
+                        if (outcome.ok) settingsRepo.markSynced(outcome.message)
+                    }
                 }
                 /* A network failure keeps the cached session so the app still
                    works offline. The next sync will surface a 401. */
@@ -213,22 +253,43 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             _authError.value = ""
             try {
                 val result = container.serverApi.login(base, username, password)
-                val previous = container.authRepository.current()
-                val lastAccount = settingsRepo.current().lastAccountId
-                val switched = (previous != null && previous.user.id != result.user.id) ||
-                    (lastAccount.isNotBlank() && lastAccount != result.user.id)
-                if (switched) {
-                    /* Never let one account see another account's cached library. */
-                    dao.resetLibrary()
-                    container.examStore.clear()
-                    container.scanSession.clear()
-                    settingsRepo.clearSyncStatus()
-                    settingsRepo.resetProfile()
+                syncMutex.withLock {
+                    val previous = container.authRepository.current()
+                    val lastAccount = settingsRepo.current().lastAccountId
+                    if (previous != null && previous.user.id != result.user.id) {
+                        /* Adding an account must not throw away the work of the
+                           account that is still open. Login is online-only, so the
+                           sync below normally succeeds. */
+                        val pending = dao.pendingChangeCount()
+                        val currentSettings = settingsRepo.current()
+                        val unsynced = pending > 0 ||
+                            (currentSettings.profileUpdatedAt > 0L &&
+                                currentSettings.profileUpdatedAt > currentSettings.lastSyncAt)
+                        val previousBase = currentSettings.serverUrl.ifBlank { previous.serverUrl }
+                        if (previousBase.isNotBlank()) {
+                            val outcome = container.cloudSyncRepository.sync(
+                                previousBase,
+                                previous,
+                                currentSettings
+                            )
+                            if (outcome.ok) {
+                                settingsRepo.markSynced(outcome.message)
+                            } else if (unsynced) {
+                                _authError.value = "Couldn't save the current account's changes. " +
+                                    outcome.message
+                                return@launch
+                            }
+                        }
+                        resetLocalWorkspace()
+                    } else if (lastAccount.isNotBlank() && lastAccount != result.user.id) {
+                        /* Never let one account see another account's cached library. */
+                        resetLocalWorkspace()
+                    }
+                    settingsRepo.updateServerUrl(base)
+                    settingsRepo.setAccountId(result.user.id)
+                    settingsRepo.clearLegacySecrets()
+                    container.authRepository.save(result.token, result.user, result.expiresAt, base)
                 }
-                settingsRepo.updateServerUrl(base)
-                settingsRepo.setAccountId(result.user.id)
-                settingsRepo.clearLegacySecrets()
-                container.authRepository.save(result.token, result.user, result.expiresAt)
                 _authError.value = ""
                 emit(UiEvent("Signed in as ${result.user.label}."))
                 syncInBackground()
@@ -242,21 +303,241 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /**
+     * Switches to an account that is already saved on this phone. No password
+     * is asked again; the current account is synced first so local work is not
+     * lost, then Room is refilled from the target account's workspace.
+     */
+    fun switchAccount(key: String) {
+        if (_accountBusy.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _accountBusy.value = true
+            try {
+                val target = container.authRepository.list().firstOrNull { it.key == key }
+                if (target == null) {
+                    emit(UiEvent("That saved account is no longer on this phone.", error = true))
+                    return@launch
+                }
+                val current = container.authRepository.current()
+                if (current?.key == target.key) return@launch
+                val settings = settingsRepo.current()
+                val base = target.serverUrl.ifBlank { settings.serverUrl }
+                if (base.isBlank()) {
+                    emit(
+                        UiEvent(
+                            "Add the Padanam site address before switching accounts.",
+                            error = true
+                        )
+                    )
+                    return@launch
+                }
+                if (target.expired()) {
+                    container.authRepository.remove(target.key)
+                    emit(
+                        UiEvent(
+                            "${target.user.label}'s login expired. Sign in again.",
+                            error = true
+                        )
+                    )
+                    return@launch
+                }
+
+                val onlineNow = runCatching {
+                    container.networkMonitor.online.first()
+                }.getOrDefault(true)
+                val awayProblem = if (current != null) {
+                    prepareSwitchAway(current, onlineNow)
+                } else {
+                    null
+                }
+                if (awayProblem != null) {
+                    emit(UiEvent(awayProblem, error = true))
+                    return@launch
+                }
+
+                /* Confirm the saved token while online so an expired learner
+                   login is removed instead of opening an empty library. */
+                var chosen = target.copy(serverUrl = base)
+                if (onlineNow) {
+                    try {
+                        val user = container.serverApi.session(base, target.token)
+                        chosen = chosen.copy(user = user)
+                    } catch (error: ServerException) {
+                        if (error.expired || error.statusCode == 401) {
+                            container.authRepository.remove(target.key)
+                            emit(
+                                UiEvent(
+                                    "${target.user.label}'s login expired. Sign in again.",
+                                    error = true
+                                )
+                            )
+                            return@launch
+                        }
+                        /* A network hiccup keeps the cached session. */
+                    } catch (_: Exception) {
+                        /* Same. */
+                    }
+                }
+
+                var outcome: SyncOutcome? = null
+                syncMutex.withLock {
+                    resetLocalWorkspace()
+                    settingsRepo.updateServerUrl(base)
+                    container.authRepository.save(
+                        chosen.token,
+                        chosen.user,
+                        chosen.expiresAt,
+                        base
+                    )
+                    settingsRepo.setAccountId(chosen.user.id)
+                    settingsRepo.clearLegacySecrets()
+                    if (onlineNow) {
+                        _syncOp.value = OperationState(
+                            busy = true,
+                            message = "Loading ${chosen.user.label}'s library…"
+                        )
+                        outcome = container.cloudSyncRepository.sync(
+                            base,
+                            chosen,
+                            settingsRepo.current()
+                        )
+                    }
+                }
+                emit(
+                    UiEvent(
+                        if (onlineNow) {
+                            "Switched to ${chosen.user.label}."
+                        } else {
+                            "Switched to ${chosen.user.label}. The library downloads when you're online."
+                        }
+                    )
+                )
+                outcome?.let { reportSync(it, silentSuccess = true) }
+            } catch (error: Exception) {
+                emit(UiEvent(error.message ?: "Couldn't switch accounts.", error = true))
+            } finally {
+                _accountBusy.value = false
+            }
+        }
+    }
+
+    /**
+     * Pushes the current account before its cache is cleared. Returns a message
+     * when the switch must be blocked, or null when it is safe to continue.
+     */
+    private suspend fun prepareSwitchAway(current: AuthSession, onlineNow: Boolean): String? {
+        val settings = settingsRepo.current()
+        val currentBase = current.serverUrl.ifBlank { settings.serverUrl }
+        val pending = dao.pendingChangeCount()
+        val profilePending = settings.profileUpdatedAt > 0L &&
+            settings.profileUpdatedAt > settings.lastSyncAt
+        val unsynced = pending > 0 || profilePending
+        if (currentBase.isBlank()) {
+            return if (unsynced) {
+                "Add the Padanam site address so your latest changes can sync before switching."
+            } else {
+                null
+            }
+        }
+        if (!onlineNow) {
+            return if (unsynced) {
+                if (pending > 0) {
+                    "You have $pending unsaved ${if (pending == 1) "change" else "changes"}. " +
+                        "Connect to the internet before switching so they aren't lost."
+                } else {
+                    "Your profile has unsaved changes. Connect to the internet before " +
+                        "switching so they aren't lost."
+                }
+            } else {
+                null
+            }
+        }
+        val outcome = syncMutex.withLock {
+            container.cloudSyncRepository.sync(
+                currentBase,
+                current,
+                settings
+            )
+        }
+        if (outcome.ok) {
+            settingsRepo.markSynced(outcome.message)
+            return null
+        }
+        return if (unsynced) {
+            "Couldn't save your latest changes. ${outcome.message}"
+        } else {
+            emit(UiEvent("Couldn't sync before switching. ${outcome.message}"))
+            null
+        }
+    }
+
+    /** Removes one non-active saved login without touching the open library. */
+    fun removeSavedAccount(key: String) {
+        if (_accountBusy.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _accountBusy.value = true
+            try {
+                val target = container.authRepository.list().firstOrNull { it.key == key }
+                    ?: return@launch
+                val current = container.authRepository.current()
+                if (current?.key == target.key) return@launch
+                val base = target.serverUrl.ifBlank { settingsRepo.current().serverUrl }
+                if (base.isNotBlank()) {
+                    runCatching { container.serverApi.logout(base, target.token) }
+                }
+                container.authRepository.remove(target.key)
+                emit(UiEvent("Removed ${target.user.label} from this phone."))
+            } finally {
+                _accountBusy.value = false
+            }
+        }
+    }
+
     fun signOut() {
         viewModelScope.launch(Dispatchers.IO) {
             val current = container.authRepository.current()
             val base = settingsRepo.current().serverUrl
             if (current != null && base.isNotBlank()) {
-                container.serverApi.logout(base, current.token)
+                runCatching { container.serverApi.logout(base, current.token) }
             }
-            container.authRepository.clear()
-            container.examStore.clear()
-            container.scanSession.clear()
-            dao.resetLibrary()
-            settingsRepo.clearSyncStatus()
-            _syncOp.value = OperationState()
-            emit(UiEvent("Signed out. This device's library was cleared."))
+            /* Clear Room before the active account changes so the next account
+               never appears over the previous account's library. */
+            val next = syncMutex.withLock {
+                resetLocalWorkspace()
+                if (current != null) {
+                    container.authRepository.remove(current.key)
+                } else {
+                    container.authRepository.current()
+                }
+            }
+            if (next != null) {
+                settingsRepo.setAccountId(next.user.id)
+                emit(
+                    UiEvent(
+                        "Signed out of ${current?.user?.label ?: "the account"}. " +
+                            "Switched to ${next.user.label}."
+                    )
+                )
+                val nextBase = next.serverUrl.ifBlank { base }
+                if (nextBase.isNotBlank()) settingsRepo.updateServerUrl(nextBase)
+                if (nextBase.isNotBlank() &&
+                    runCatching { container.networkMonitor.online.first() }.getOrDefault(false)
+                ) {
+                    syncNow(silent = true)
+                }
+            } else {
+                emit(UiEvent("Signed out. This device's library was cleared."))
+            }
         }
+    }
+
+    private suspend fun resetLocalWorkspace() {
+        dao.resetLibrary()
+        container.examStore.clear()
+        container.scanSession.clear()
+        settingsRepo.clearSyncStatus()
+        settingsRepo.resetProfile()
+        _syncOp.value = OperationState()
     }
 
     fun clearAuthError() {
@@ -643,11 +924,15 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
                 busy = true,
                 message = "Downloading every set and question…"
             )
-            val outcome = container.cloudSyncRepository.sync(
-                settings.serverUrl,
-                current,
-                settings
-            )
+            val outcome = syncMutex.withLock {
+                val liveSession = container.authRepository.current() ?: return@launch
+                val liveSettings = settingsRepo.current()
+                container.cloudSyncRepository.sync(
+                    liveSettings.serverUrl,
+                    liveSession,
+                    liveSettings
+                )
+            }
             if (!outcome.ok) {
                 reportSync(outcome, silentSuccess = false)
                 return@launch
@@ -827,11 +1112,21 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
                 return@launch
             }
             _syncOp.value = OperationState(busy = true, message = "Syncing with your account…")
-            val outcome = container.cloudSyncRepository.sync(
-                settings.serverUrl,
-                current,
-                settings
-            )
+            val outcome = syncMutex.withLock {
+                val liveSession = container.authRepository.current()
+                val liveSettings = settingsRepo.current()
+                if (liveSession == null) {
+                    SyncOutcome(false, "Sign in to sync your account.")
+                } else if (liveSettings.serverUrl.isBlank()) {
+                    SyncOutcome(false, "Add the address of your Padanam site in Settings first.")
+                } else {
+                    container.cloudSyncRepository.sync(
+                        liveSettings.serverUrl,
+                        liveSession,
+                        liveSettings
+                    )
+                }
+            }
             reportSync(outcome, silent)
         }
     }
@@ -839,18 +1134,20 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     /** Fire-and-forget sync used after a scan, an attempt or a profile edit. */
     fun syncInBackground() {
         viewModelScope.launch(Dispatchers.IO) {
-            val settings = settingsRepo.current()
-            if (!settings.autoSync) return@launch
-            val current = container.authRepository.current() ?: return@launch
-            if (settings.serverUrl.isBlank()) return@launch
-            val outcome = container.cloudSyncRepository.sync(
-                settings.serverUrl,
-                current,
-                settings
-            )
+            val outcome = syncMutex.withLock {
+                val settings = settingsRepo.current()
+                if (!settings.autoSync) return@withLock null
+                val current = container.authRepository.current() ?: return@withLock null
+                if (settings.serverUrl.isBlank()) return@withLock null
+                container.cloudSyncRepository.sync(
+                    settings.serverUrl,
+                    current,
+                    settings
+                )
+            } ?: return@launch
             if (outcome.ok) {
                 settingsRepo.markSynced(outcome.message)
-                if (settings.offlineReady) settingsRepo.markOfflineReady()
+                if (settingsRepo.current().offlineReady) settingsRepo.markOfflineReady()
             } else {
                 settingsRepo.markSyncFailed(outcome.message)
             }

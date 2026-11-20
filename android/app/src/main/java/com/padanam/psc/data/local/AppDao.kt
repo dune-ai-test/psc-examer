@@ -212,6 +212,17 @@ interface AppDao {
     @Query("UPDATE attempts SET synced = 1")
     suspend fun markAllAttemptsSynced()
 
+    /** One-shot total used before swapping the active account. */
+    @Query(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM sets WHERE synced = 0) +
+            (SELECT COUNT(*) FROM questions WHERE synced = 0) +
+            (SELECT COUNT(*) FROM attempts WHERE synced = 0)
+        """
+    )
+    suspend fun pendingChangeCount(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAttempt(attempt: AttemptEntity)
 
