@@ -91,5 +91,4 @@ jobs:
             "android/app/build/outputs/apk/release/app-release.apk" \
             --target "$TARGET_SHA" \
             --title "Padanam release build ${GITHUB_RUN_NUMBER}" \
-            --prerelease \
             --notes "Release-signed Padanam ${VERSION} APK for commit ${TARGET_SHA} (workflow run ${GITHUB_RUN_NUMBER}). This build uses the upload keystore, not the debug key: if Android reports a signature mismatch, uninstall the existing debug build first. Your library syncs back after signing in."
