@@ -18,7 +18,23 @@ android {
         versionName = "1.4.2"
     }
 
+    // A committed debug key keeps every CI build signed by the same
+    // certificate, so new APKs install over the previous ones. Debug keys are
+    // not secrets; all builds here are public pre-releases.
+    signingConfigs {
+        create("stableDebug") {
+            storeFile = file("padanam-debug.p12")
+            storeType = "PKCS12"
+            storePassword = "padanam"
+            keyAlias = "padanam-debug"
+            keyPassword = "padanam"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("stableDebug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
