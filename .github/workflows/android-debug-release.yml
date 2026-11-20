@@ -1,11 +1,15 @@
 name: Build debug APK
 
-# Every push to main builds the app on a GitHub runner and publishes the
-# debug APK straight to a pre-release. No local build is needed.
+# Manual only. Pushing to any branch no longer starts this workflow.
+# Run it from Actions → Build debug APK → Run workflow.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch to build"
+        required: true
+        default: web
+        type: string
 
 permissions:
   contents: write
@@ -23,8 +27,10 @@ jobs:
         working-directory: android
 
     steps:
-      - name: Check out the repository
+      - name: Check out the requested branch
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -36,19 +42,22 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # The debug key is committed at android/app/padanam-debug.p12 and wired
+      # up in build.gradle.kts, so updates stay installable over each other.
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      # No actions/upload-artifact step: the APK goes straight to Releases.
-      - name: Publish pre-release with APK
+      - name: Publish pre-release with debug APK
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v1.0.0-debug.${{ github.run_number }}
         run: |
+          TARGET_SHA=$(git rev-parse HEAD)
+          VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n1)
+          TAG="v${VERSION}-debug.${GITHUB_RUN_NUMBER}"
           gh release create "$TAG" \
             "android/app/build/outputs/apk/debug/app-debug.apk" \
-            --target "$GITHUB_SHA" \
-            --title "Padanam debug build ${{ github.run_number }}" \
+            --target "$TARGET_SHA" \
+            --title "Padanam debug build ${GITHUB_RUN_NUMBER}" \
             --prerelease \
-            --notes "Automated debug APK for commit $GITHUB_SHA (workflow run ${{ github.run_number }}). Download app-debug.apk below and install it on your phone; allow installs from unknown sources when Android asks."
+            --notes "Debug APK for Padanam ${VERSION}, commit ${TARGET_SHA} (workflow run ${GITHUB_RUN_NUMBER}). Download app-debug.apk below and install it on your phone; allow installs from unknown sources when Android asks."
