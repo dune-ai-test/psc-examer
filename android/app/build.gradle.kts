@@ -6,6 +6,18 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// The release workflow decodes the upload keystore on the runner and passes
+// these environment variables to Gradle. Local builds without them still work;
+// assembleRelease simply produces an unsigned APK.
+val releaseStorePath = System.getenv("ANDROID_KEYSTORE_PATH").orEmpty()
+val releaseStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD").orEmpty()
+val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS").orEmpty()
+val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD").orEmpty()
+val releaseSigningReady = releaseStorePath.isNotBlank() &&
+    releaseStorePassword.isNotBlank() &&
+    releaseKeyAlias.isNotBlank() &&
+    releaseKeyPassword.isNotBlank()
+
 android {
     namespace = "com.padanam.psc"
     compileSdk = 35
@@ -29,6 +41,16 @@ android {
             keyAlias = "padanam-debug"
             keyPassword = "padanam"
         }
+        if (releaseSigningReady) {
+            create("upload") {
+                storeFile = file(releaseStorePath)
+                storeType = System.getenv("ANDROID_KEYSTORE_TYPE")
+                    ?.takeIf { it.isNotBlank() } ?: "JKS"
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -41,6 +63,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (releaseSigningReady) {
+                signingConfig = signingConfigs.getByName("upload")
+            }
         }
     }
 
