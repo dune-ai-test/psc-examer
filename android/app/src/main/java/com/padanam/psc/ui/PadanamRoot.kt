@@ -1,5 +1,8 @@
 package com.padanam.psc.ui
 
+import android.app.Activity
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -11,8 +14,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -45,6 +51,7 @@ import com.padanam.psc.ui.scan.ScanResultScreen
 import com.padanam.psc.ui.setdetail.SetDetailScreen
 import com.padanam.psc.ui.settings.SettingsScreen
 import com.padanam.psc.ui.theme.Cloud
+import kotlinx.coroutines.delay
 
 object Routes {
     const val HOME = "home"
@@ -116,6 +123,26 @@ private fun SignedInRoot(
     val route = backStackEntry?.destination?.route
     val tabRoute = MainTab.entries.firstOrNull { it.route == route }?.route
     val showTabs = tabRoute != null
+
+    // Back on the home tab does not silently drop the app into the task
+    // switcher: the first press asks for confirmation and the second press
+    // removes the task for real.
+    val context = LocalContext.current
+    var exitArmed by remember { mutableStateOf(false) }
+    LaunchedEffect(exitArmed) {
+        if (exitArmed) {
+            delay(2_000)
+            exitArmed = false
+        }
+    }
+    BackHandler(enabled = route == Routes.HOME) {
+        if (exitArmed) {
+            (context as? Activity)?.finishAndRemoveTask()
+        } else {
+            exitArmed = true
+            Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     LaunchedEffect(appVm) {
         appVm.events.collect { event ->

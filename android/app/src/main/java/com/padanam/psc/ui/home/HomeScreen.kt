@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,7 +59,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.padanam.psc.data.model.ActiveExam
 import com.padanam.psc.data.model.QuizMode
 import com.padanam.psc.ui.AppViewModel
-import com.padanam.psc.ui.components.Avatar
 import com.padanam.psc.ui.components.DarkCardButton
 import com.padanam.psc.ui.components.DarkGradientCard
 import com.padanam.psc.ui.components.FloatingTabBarSpace
@@ -148,37 +148,29 @@ fun HomeScreen(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(SurfaceWhite)
+                    .clickable { remindersDialog = true },
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(SurfaceWhite)
-                        .clickable { remindersDialog = true },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Rounded.Notifications,
-                        contentDescription = "Study reminders",
-                        tint = Navy,
-                        modifier = Modifier.size(18.dp)
+                Icon(
+                    Icons.Rounded.Notifications,
+                    contentDescription = "Study reminders",
+                    tint = Navy,
+                    modifier = Modifier.size(18.dp)
+                )
+                if (settings.reminders) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 10.dp, end = 10.dp)
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(Indigo)
                     )
-                    if (settings.reminders) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 10.dp, end = 10.dp)
-                                .size(5.dp)
-                                .clip(CircleShape)
-                                .background(Indigo)
-                        )
-                    }
-                }
-                Box(modifier = Modifier.clickable(onClick = onOpenProfile)) {
-                    Avatar(name = settings.name, size = 42.dp, fontSize = 13)
                 }
             }
         }
@@ -189,7 +181,7 @@ fun HomeScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 start = 20.dp,
                 end = 20.dp,
-                top = 2.dp,
+                top = 8.dp,
                 bottom = FloatingTabBarSpace
             ),
             verticalArrangement = Arrangement.spacedBy(22.dp)
@@ -230,6 +222,17 @@ fun HomeScreen(
                     } else {
                         AwaitingLibrary(onOpenProfile = onOpenProfile)
                     }
+                }
+            }
+
+            if (!canScan && exam == null) {
+                item {
+                    TodayFocus(
+                        newUser = newUser,
+                        answeredToday = answeredToday,
+                        goal = goal,
+                        due = due
+                    )
                 }
             }
 
@@ -594,6 +597,73 @@ private fun ScanCard(
                 icon = Icons.Rounded.Image,
                 onClick = onImport
             )
+        }
+    }
+}
+
+@Composable
+private fun TodayFocus(
+    newUser: Boolean,
+    answeredToday: Int,
+    goal: Int,
+    due: Int
+) {
+    val remaining = (goal - answeredToday).coerceAtLeast(0)
+    val heading: String
+    val message: String
+    val icon: ImageVector
+    when {
+        newUser -> {
+            heading = "Your first set is one photo away"
+            message = "Scan a page or open the library to start your first practice set."
+            icon = Icons.Rounded.DocumentScanner
+        }
+        answeredToday >= goal -> {
+            heading = "Daily goal complete"
+            message = "You answered $answeredToday questions today. A short review keeps the streak alive."
+            icon = Icons.Rounded.CheckCircle
+        }
+        due > 0 -> {
+            heading = "$due ${if (due == 1) "set needs" else "sets need"} a pass"
+            message = "$remaining more questions will finish today's goal."
+            icon = Icons.Rounded.Flag
+        }
+        else -> {
+            heading = "Keep the momentum"
+            message = "$remaining more questions will finish today's goal."
+            icon = Icons.Rounded.AutoAwesome
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(SurfaceWhite)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(OrangeSoft),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = Orange, modifier = Modifier.size(18.dp))
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                "TODAY'S FOCUS",
+                style = AppType.MonoSmall.copy(letterSpacing = 0.9.sp),
+                color = IndigoMuted
+            )
+            Text(heading, style = AppType.SectionTitle, color = Navy)
+            Text(message, style = AppType.BodySmall, color = InkMuted)
         }
     }
 }
