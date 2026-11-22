@@ -210,7 +210,7 @@ fun ExamSetupScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text(
-                        info.subject.uppercase(),
+                        info.mainTopic.uppercase(),
                         style = AppType.Eyebrow.copy(letterSpacing = 0.8.sp),
                         color = Indigo
                     )
@@ -218,6 +218,13 @@ fun ExamSetupScreen(
                         info.title,
                         style = AppType.HeroTitle.copy(fontSize = 28.sp, lineHeight = 33.sp),
                         color = Navy
+                    )
+                    Text(
+                        "SUBTOPIC · ${info.subTopic}",
+                        style = AppType.MonoSmall.copy(letterSpacing = 0.5.sp),
+                        color = IndigoText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         if (isExam) {

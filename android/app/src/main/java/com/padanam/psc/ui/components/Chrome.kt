@@ -464,8 +464,17 @@ fun SetRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            if (!summary.subTopic.equals(summary.title, ignoreCase = true)) {
+                Text(
+                    summary.subTopic,
+                    style = AppType.LabelSmallStrong.copy(fontSize = 11.sp),
+                    color = Indigo,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Text(
-                "${summary.questionCount} Q · ${Format.relativeTime(summary.createdAt)}",
+                "${summary.mainTopic} · ${summary.questionCount} Q · ${Format.relativeTime(summary.createdAt)}",
                 style = AppType.MonoMeta,
                 color = InkMuted,
                 maxLines = 1,

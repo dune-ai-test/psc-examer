@@ -5,6 +5,7 @@ import com.padanam.psc.data.local.QuestionEntity
 import com.padanam.psc.data.local.SetEntity
 import com.padanam.psc.data.model.AnswerRecord
 import com.padanam.psc.data.model.QuizMode
+import com.padanam.psc.data.model.Topics
 import com.padanam.psc.data.prefs.AppSettings
 import com.padanam.psc.data.remote.array
 import com.padanam.psc.data.remote.jsonDate
@@ -98,6 +99,8 @@ object WebBackup {
         put("title", set.title)
         put("titleMl", set.titleMl)
         put("subject", set.subject)
+        put("mainTopic", Topics.normalize(set.mainTopic, set.title, set.subject))
+        put("subTopic", Topics.subTopic(set.subTopic, set.title))
         put("source", set.source)
         put("createdAt", jsonDate(set.createdAt))
         put("updatedAt", jsonDate(set.updatedAt))
@@ -249,11 +252,15 @@ object WebBackup {
         val questions = payload.array("questions").mapIndexedNotNull { index, element ->
             (element as? JsonObject)?.let { parseQuestion(it, id, index, created + index) }
         }
+        val title = payload.string("title").ifBlank { "Untitled set" }.take(120)
+        val subject = payload.string("subject").ifBlank { "General" }.take(60)
         val set = SetEntity(
             id = id,
-            title = payload.string("title").ifBlank { "Untitled set" }.take(120),
+            title = title,
             titleMl = payload.string("titleMl").take(120),
-            subject = payload.string("subject").ifBlank { "General" }.take(60),
+            subject = subject,
+            mainTopic = Topics.normalize(payload.string("mainTopic"), title, subject),
+            subTopic = Topics.subTopic(payload.string("subTopic"), title),
             createdAt = created,
             updatedAt = updated,
             source = payload.string("source")

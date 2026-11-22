@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CameraAlt
@@ -34,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.padanam.psc.data.model.SetSummary
+import com.padanam.psc.data.model.Topics
 import com.padanam.psc.ui.AppViewModel
 import com.padanam.psc.ui.components.AppTextField
 import com.padanam.psc.ui.components.ChoiceChip
@@ -57,6 +61,7 @@ import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.SearchField
 import com.padanam.psc.ui.components.SectionHeading
 import com.padanam.psc.ui.components.SetRow
+import com.padanam.psc.ui.components.TopicEditor
 import com.padanam.psc.ui.theme.AppType
 import com.padanam.psc.ui.theme.Cloud
 import com.padanam.psc.ui.theme.Indigo
@@ -67,6 +72,7 @@ import com.padanam.psc.ui.theme.Navy
 import com.padanam.psc.ui.theme.OnDark
 import com.padanam.psc.ui.theme.SurfaceWhite
 import com.padanam.psc.util.Format
+import kotlinx.coroutines.launch
 
 private const val FILTER_ALL = "all"
 private const val FILTER_SCANNED = "scanned"
@@ -87,11 +93,16 @@ fun LibraryScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf(FILTER_ALL) }
     var subjectFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    var topicFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var showSubjects by remember { mutableStateOf(false) }
     var createOpen by remember { mutableStateOf(false) }
     var newTitle by remember { mutableStateOf("") }
     var newTitleMl by remember { mutableStateOf("") }
     var newSubject by remember { mutableStateOf("General") }
+    var newMainTopic by remember { mutableStateOf("") }
+    var newSubTopic by remember { mutableStateOf("") }
+    var suggestingTopic by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     fun isDue(summary: SetSummary): Boolean =
         summary.attemptCount == 0 || (summary.bestScore ?: 0) < Format.PASS_PERCENT
@@ -100,12 +111,16 @@ fun LibraryScreen(
     val savedCount = sets.count { it.attemptCount > 0 }
     val dueCount = sets.count(::isDue)
     val subjects = sets.map { it.subject }.distinct().sorted()
+    val mainTopics = sets.map { it.mainTopic }.distinct().sortedBy { Topics.rank(it) }
+    val subTopicSuggestions = sets.map { it.subTopic }.distinct().sortedBy { it.lowercase() }
 
     val filtered = sets.filter { summary ->
         val matchesQuery = query.isBlank() ||
             summary.title.contains(query, ignoreCase = true) ||
             summary.set.titleMl.contains(query, ignoreCase = true) ||
-            summary.subject.contains(query, ignoreCase = true)
+            summary.subject.contains(query, ignoreCase = true) ||
+            summary.mainTopic.contains(query, ignoreCase = true) ||
+            summary.subTopic.contains(query, ignoreCase = true)
         val matchesFilter = when (filter) {
             FILTER_SCANNED -> summary.set.source != "demo"
             FILTER_SAVED -> summary.attemptCount > 0
@@ -113,7 +128,8 @@ fun LibraryScreen(
             else -> true
         }
         val matchesSubject = subjectFilter == null || summary.subject == subjectFilter
-        matchesQuery && matchesFilter && matchesSubject
+        val matchesTopic = topicFilter == null || summary.mainTopic == topicFilter
+        matchesQuery && matchesFilter && matchesSubject && matchesTopic
     }
 
     val week = filtered.filter {
@@ -149,7 +165,7 @@ fun LibraryScreen(
                 )
                 CircleAction(
                     icon = Icons.Rounded.Tune,
-                    contentDescription = "Subject filters",
+                    contentDescription = "Library filters",
                     onClick = { showSubjects = !showSubjects },
                     size = 40.dp,
                     container = if (showSubjects) IndigoSoft else SurfaceWhite,
@@ -168,7 +184,7 @@ fun LibraryScreen(
                 SearchField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = "Search sets, subjects, tags"
+                    placeholder = "Search sets, topics or subjects"
                 )
             }
 
@@ -202,33 +218,67 @@ fun LibraryScreen(
                 }
             }
 
-            if (showSubjects && subjects.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "FILTER BY SUBJECT",
-                            style = AppType.MonoSmall.copy(letterSpacing = 0.8.sp),
-                            color = InkMuted
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            ChoiceChip(
-                                text = "Any subject",
-                                selected = subjectFilter == null,
-                                onClick = { subjectFilter = null }
+            if (showSubjects && (mainTopics.isNotEmpty() || subjects.isNotEmpty())) {
+                if (mainTopics.isNotEmpty()) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "FILTER BY MAIN TOPIC",
+                                style = AppType.MonoSmall.copy(letterSpacing = 0.8.sp),
+                                color = InkMuted
                             )
-                            subjects.forEach { subject ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 ChoiceChip(
-                                    text = subject,
-                                    selected = subjectFilter == subject,
-                                    onClick = {
-                                        subjectFilter = if (subjectFilter == subject) null else subject
-                                    }
+                                    text = "Any topic",
+                                    selected = topicFilter == null,
+                                    onClick = { topicFilter = null }
                                 )
+                                mainTopics.forEach { topic ->
+                                    ChoiceChip(
+                                        text = topic,
+                                        selected = topicFilter == topic,
+                                        onClick = {
+                                            topicFilter = if (topicFilter == topic) null else topic
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                if (subjects.isNotEmpty()) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                "FILTER BY SUBJECT",
+                                style = AppType.MonoSmall.copy(letterSpacing = 0.8.sp),
+                                color = InkMuted
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ChoiceChip(
+                                    text = "Any subject",
+                                    selected = subjectFilter == null,
+                                    onClick = { subjectFilter = null }
+                                )
+                                subjects.forEach { subject ->
+                                    ChoiceChip(
+                                        text = subject,
+                                        selected = subjectFilter == subject,
+                                        onClick = {
+                                            subjectFilter = if (subjectFilter == subject) null else subject
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -307,7 +357,7 @@ fun LibraryScreen(
                     ) {
                         Text("No sets match", style = AppType.SectionTitle, color = Navy)
                         Text(
-                            "Try a different search or filter.",
+                            "Try a different search, main topic or subject filter.",
                             style = AppType.BodySmall,
                             color = InkMuted
                         )
@@ -322,6 +372,7 @@ fun LibraryScreen(
                                     query = ""
                                     filter = FILTER_ALL
                                     subjectFilter = null
+                                    topicFilter = null
                                 }
                                 .padding(horizontal = 14.dp, vertical = 8.dp)
                         )
@@ -373,6 +424,7 @@ fun LibraryScreen(
     }
 
     if (createOpen) {
+        val effectiveMainTopic = newMainTopic.ifBlank { Topics.infer(newTitle, newSubject) }
         AlertDialog(
             onDismissRequest = { createOpen = false },
             containerColor = SurfaceWhite,
@@ -381,7 +433,12 @@ fun LibraryScreen(
                 Text("New question set", style = AppType.Question, color = Navy)
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 430.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     AppTextField(
                         label = "Set name",
                         value = newTitle,
@@ -400,6 +457,32 @@ fun LibraryScreen(
                         onValueChange = { newSubject = it },
                         placeholder = "General"
                     )
+                    TopicEditor(
+                        mainTopic = effectiveMainTopic,
+                        onMainTopicChange = { newMainTopic = it },
+                        subTopic = newSubTopic,
+                        onSubTopicChange = { newSubTopic = it },
+                        suggestions = subTopicSuggestions,
+                        onSuggest = {
+                            if (newTitle.isNotBlank() && !suggestingTopic) {
+                                suggestingTopic = true
+                                scope.launch {
+                                    val suggestion = appVm.suggestTopics(
+                                        title = newTitle,
+                                        subject = newSubject,
+                                        subTopic = newSubTopic,
+                                        samples = emptyList()
+                                    )
+                                    newMainTopic = suggestion.mainTopic
+                                    newSubTopic = suggestion.subTopic
+                                    suggestingTopic = false
+                                }
+                            }
+                        },
+                        suggesting = suggestingTopic,
+                        suggestEnabled = newTitle.isNotBlank(),
+                        hint = "The main topic is fixed. A blank subtopic defaults to the set name."
+                    )
                     Text(
                         "The set starts empty. Add questions from its detail screen.",
                         style = AppType.BodyTiny,
@@ -410,11 +493,19 @@ fun LibraryScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        appVm.createSet(newTitle, newTitleMl, newSubject)
+                        appVm.createSet(
+                            newTitle,
+                            newTitleMl,
+                            newSubject,
+                            effectiveMainTopic,
+                            newSubTopic
+                        )
                         createOpen = false
                         newTitle = ""
                         newTitleMl = ""
                         newSubject = "General"
+                        newMainTopic = ""
+                        newSubTopic = ""
                     },
                     enabled = newTitle.isNotBlank()
                 ) {

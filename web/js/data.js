@@ -15,6 +15,23 @@ window.PadanamSeed = (function () {
     };
   }
 
+  var mainTopics = [
+    'Biology & Public Health',
+    'Constitution',
+    'Current Affairs',
+    'Economics',
+    'English',
+    'Indian History',
+    'Information Technology',
+    'Kerala Governance',
+    'Kerala - World Geography',
+    'Kerala - World History',
+    'Malayalam',
+    'Mathematics & Mental Ability',
+    'Physical Science',
+    'Indian Geography'
+  ];
+
   var subjects = [
     { name: 'Geography', ml: 'ഭൂമിശാസ്ത്രം' },
     { name: 'Renaissance', ml: 'നവോത്ഥാനം' },
@@ -34,6 +51,8 @@ window.PadanamSeed = (function () {
     title: 'Kerala Geography',
     titleMl: 'കേരള ഭൂമിശാസ്ത്രം',
     subject: 'Geography',
+    mainTopic: 'Kerala - World Geography',
+    subTopic: 'Kerala Geography',
     source: 'demo',
     questions: [
       q('kg1', 1,
@@ -114,6 +133,8 @@ window.PadanamSeed = (function () {
     title: 'Kerala Renaissance',
     titleMl: 'കേരള നവോത്ഥാനം',
     subject: 'Renaissance',
+    mainTopic: 'Kerala - World History',
+    subTopic: 'Kerala Renaissance',
     source: 'demo',
     questions: [
       q('kr1', 1,
@@ -194,6 +215,8 @@ window.PadanamSeed = (function () {
     title: 'Basic Science',
     titleMl: 'അടിസ്ഥാന ശാസ്ത്രം',
     subject: 'Science',
+    mainTopic: 'Physical Science',
+    subTopic: 'General Science',
     source: 'demo',
     questions: [
       q('bs1', 0,
@@ -259,6 +282,8 @@ window.PadanamSeed = (function () {
     title: 'PSC Mini Test — Mixed',
     titleMl: 'പി.എസ്.സി. മിനി ടെസ്റ്റ് — മിശ്രിതം',
     subject: 'General Knowledge',
+    mainTopic: 'Current Affairs',
+    subTopic: 'PSC Mini Test',
     questions: [
       q('ds1', 0,
         'Which Article of the Indian Constitution guarantees equality before the law?',
@@ -307,6 +332,7 @@ window.PadanamSeed = (function () {
 
   return {
     subjects: subjects,
+    mainTopics: mainTopics,
     demoSets: [geography, renaissance, science],
     demoScan: demoScan
   };

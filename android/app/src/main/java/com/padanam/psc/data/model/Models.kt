@@ -46,6 +46,8 @@ object ViewMode {
 data class AiScanResult(
     val title: String = "",
     val subject: String = "General",
+    val mainTopic: String = "",
+    val subTopic: String = "",
     val questions: List<AiQuestion> = emptyList()
 )
 
@@ -148,7 +150,16 @@ data class ScanDestination(
     val id: String,
     val title: String,
     val subject: String,
+    val mainTopic: String,
+    val subTopic: String,
     val questionCount: Int
+)
+
+/** A topic pair returned by the AI classifier or filled by the local guess. */
+data class TopicSuggestion(
+    val mainTopic: String,
+    val subTopic: String,
+    val source: String = "ai"
 )
 
 /** Lightweight joined row used by the library and home screens. */
@@ -162,6 +173,8 @@ data class SetSummary(
     val id: String get() = set.id
     val title: String get() = set.title
     val subject: String get() = set.subject
+    val mainTopic: String get() = Topics.normalize(set.mainTopic, set.title, set.subject)
+    val subTopic: String get() = Topics.subTopic(set.subTopic, set.title)
     val createdAt: Long get() = set.createdAt
 }
 

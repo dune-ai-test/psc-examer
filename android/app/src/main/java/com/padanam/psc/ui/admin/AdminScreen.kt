@@ -456,6 +456,13 @@ private fun SetCheckRow(
                 overflow = TextOverflow.Ellipsis
             )
             Text(
+                "${set.mainTopic} · ${set.subTopic}",
+                style = AppType.LabelSmallStrong.copy(fontSize = 10.5.sp),
+                color = Indigo,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
                 "${set.subject} · ${set.questions} questions",
                 style = AppType.BodyTiny,
                 color = InkMuted,

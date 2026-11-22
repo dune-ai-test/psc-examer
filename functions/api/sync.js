@@ -260,10 +260,14 @@ async function pushWorkspace(config, workspace, snapshot) {
 
   const results = await neonBatch(config, [
     {
-      query: 'INSERT INTO padanam_sets (workspace, id, updated_ms, payload) ' +
-        'SELECT $1, item->>\'id\', (item->>\'updatedMs\')::bigint, item->\'payload\' ' +
+      query: 'INSERT INTO padanam_sets (workspace, id, main_topic, sub_topic, updated_ms, payload) ' +
+        'SELECT $1, item->>\'id\', ' +
+        'COALESCE(LEFT(item->\'payload\'->>\'mainTopic\', 80), \'\'), ' +
+        'COALESCE(LEFT(item->\'payload\'->>\'subTopic\', 120), \'\'), ' +
+        '(item->>\'updatedMs\')::bigint, item->\'payload\' ' +
         'FROM jsonb_array_elements($2::jsonb) AS item ' +
-        'ON CONFLICT (workspace, id) DO UPDATE SET updated_ms = EXCLUDED.updated_ms, payload = EXCLUDED.payload ' +
+        'ON CONFLICT (workspace, id) DO UPDATE SET updated_ms = EXCLUDED.updated_ms, ' +
+        'payload = EXCLUDED.payload, main_topic = EXCLUDED.main_topic, sub_topic = EXCLUDED.sub_topic ' +
         'WHERE EXCLUDED.updated_ms > padanam_sets.updated_ms',
       params: [workspace, JSON.stringify(setItems)]
     },
@@ -353,8 +357,11 @@ async function replaceWorkspace(config, workspace, snapshot) {
     { query: 'DELETE FROM padanam_attempts WHERE workspace = $1', params: [workspace] },
     { query: 'DELETE FROM padanam_tombstones WHERE workspace = $1', params: [workspace] },
     {
-      query: 'INSERT INTO padanam_sets (workspace, id, updated_ms, payload) ' +
-        'SELECT $1, item->>\'id\', (item->>\'updatedMs\')::bigint, item->\'payload\' ' +
+      query: 'INSERT INTO padanam_sets (workspace, id, main_topic, sub_topic, updated_ms, payload) ' +
+        'SELECT $1, item->>\'id\', ' +
+        'COALESCE(LEFT(item->\'payload\'->>\'mainTopic\', 80), \'\'), ' +
+        'COALESCE(LEFT(item->\'payload\'->>\'subTopic\', 120), \'\'), ' +
+        '(item->>\'updatedMs\')::bigint, item->\'payload\' ' +
         'FROM jsonb_array_elements($2::jsonb) AS item',
       params: [workspace, JSON.stringify(setItems)]
     },

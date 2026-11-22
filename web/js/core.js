@@ -102,6 +102,88 @@
     return found ? found.ml : '';
   };
 
+  /* ── Fixed main-topic taxonomy ───────────────────────── */
+  A.MAIN_TOPICS = (Seed.mainTopics && Seed.mainTopics.length)
+    ? Seed.mainTopics.slice()
+    : [
+        'Biology & Public Health',
+        'Constitution',
+        'Current Affairs',
+        'Economics',
+        'English',
+        'Indian History',
+        'Information Technology',
+        'Kerala Governance',
+        'Kerala - World Geography',
+        'Kerala - World History',
+        'Malayalam',
+        'Mathematics & Mental Ability',
+        'Physical Science',
+        'Indian Geography'
+      ];
+
+  function inferMainTopic(title, subject) {
+    var text = (String(title || '') + ' ' + String(subject || '')).toLowerCase();
+
+    if (/geograph/.test(text)) {
+      return /kerala/.test(text) ? 'Kerala - World Geography' : 'Indian Geography';
+    }
+    if (/renaissance|world history|kerala history|history of kerala/.test(text)) {
+      return 'Kerala - World History';
+    }
+    if (/indian history|history/.test(text)) return 'Indian History';
+    if (/constitution|polity|civics/.test(text)) return 'Constitution';
+    if (/econom/.test(text)) return 'Economics';
+    if (/english/.test(text)) return 'English';
+    if (/malayalam/.test(text)) return 'Malayalam';
+    if (/math|mental ability|reasoning|aptitude|numerical/.test(text)) {
+      return 'Mathematics & Mental Ability';
+    }
+    if (/computer|information technology|\bict\b|internet|software/.test(text)) {
+      return 'Information Technology';
+    }
+    if (/biology|botany|zoology|public health|medical|nursing|health/.test(text)) {
+      return 'Biology & Public Health';
+    }
+    if (/physics|chemistry|science/.test(text)) return 'Physical Science';
+    if (/governance|administration|kerala/.test(text)) return 'Kerala Governance';
+    return 'Current Affairs';
+  }
+
+  A.inferMainTopic = inferMainTopic;
+
+  A.normalizeMainTopic = function (value, title, subject) {
+    var clean = String(value || '').trim();
+    if (clean) {
+      var lower = clean.toLowerCase();
+      var exact = A.MAIN_TOPICS.filter(function (topic) {
+        return topic.toLowerCase() === lower;
+      })[0];
+      if (exact) return exact;
+      var partial = A.MAIN_TOPICS.filter(function (topic) {
+        var candidate = topic.toLowerCase();
+        return candidate.indexOf(lower) >= 0 || lower.indexOf(candidate) >= 0;
+      });
+      if (partial.length === 1) return partial[0];
+    }
+    return inferMainTopic(title, subject);
+  };
+
+  A.mainTopicFor = function (set) {
+    return A.normalizeMainTopic(set && set.mainTopic, set && set.title, set && set.subject);
+  };
+
+  A.subTopicFor = function (set) {
+    var title = set && set.title ? String(set.title).trim() : '';
+    var value = set && set.subTopic ? String(set.subTopic).trim() : '';
+    return value || title || 'General';
+  };
+
+  A.topicRank = function (topic) {
+    var index = A.MAIN_TOPICS.indexOf(topic);
+    return index < 0 ? A.MAIN_TOPICS.length : index;
+  };
+
   A.sourceLabel = function (source) {
     return source === 'scan' ? 'Scanned' : source === 'manual' ? 'Manual' : 'Demo';
   };
@@ -332,11 +414,14 @@
       out.sets = state.sets.map(function (set) {
         if (!set || typeof set !== 'object') return null;
         var questions = Array.isArray(set.questions) ? set.questions.map(normalizeQuestion).filter(Boolean) : [];
+        var title = String(set.title || 'Untitled set');
         return {
           id: set.id || A.uid('set'),
-          title: String(set.title || 'Untitled set'),
+          title: title,
           titleMl: String(set.titleMl || ''),
           subject: String(set.subject || 'General Knowledge'),
+          mainTopic: A.normalizeMainTopic(set.mainTopic, title, set.subject),
+          subTopic: String(set.subTopic || '').trim() || title,
           source: ['demo', 'manual', 'scan'].indexOf(set.source) >= 0 ? set.source : 'manual',
           createdAt: set.createdAt || new Date().toISOString(),
           updatedAt: set.updatedAt || set.createdAt || new Date().toISOString(),

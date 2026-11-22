@@ -99,8 +99,10 @@ async function listUsers(database, admin) {
     },
     {
       query: 'SELECT id, payload->>\'title\' AS title, payload->>\'subject\' AS subject, ' +
+        'COALESCE(payload->>\'mainTopic\', \'\') AS main_topic, ' +
+        'COALESCE(payload->>\'subTopic\', \'\') AS sub_topic, ' +
         'jsonb_array_length(COALESCE(payload->\'questions\', \'[]\'::jsonb)) AS question_count ' +
-        'FROM padanam_sets WHERE workspace = $1 ORDER BY updated_ms DESC',
+        'FROM padanam_sets WHERE workspace = $1 ORDER BY main_topic ASC, sub_topic ASC, updated_ms DESC',
       params: [adminWorkspace]
     }
   ]);
@@ -126,6 +128,8 @@ async function listUsers(database, admin) {
         id: String(row.id || ''),
         title: String(row.title || 'Untitled set'),
         subject: String(row.subject || 'General Knowledge'),
+        mainTopic: String(row.main_topic || ''),
+        subTopic: String(row.sub_topic || ''),
         questions: Number(row.question_count || 0)
       };
     })
@@ -280,11 +284,16 @@ async function assignSets(database, admin, body) {
       try { payload = JSON.parse(payload); } catch (err) { payload = null; }
     }
     if (!payload || typeof payload !== 'object') return null;
+    var title = String(payload.title || 'Untitled set');
+    var mainTopic = String(payload.mainTopic || '').trim().slice(0, 80);
+    var subTopic = String(payload.subTopic || title).trim().slice(0, 120);
     return {
       id: String(row.id || payload.id || ''),
       updatedMs: nowMs,
       payload: Object.assign({}, payload, {
         id: String(payload.id || row.id || ''),
+        mainTopic: mainTopic,
+        subTopic: subTopic,
         updatedAt: nowIso
       })
     };
@@ -299,10 +308,14 @@ async function assignSets(database, admin, body) {
   const workspace = 'user:' + userId;
   const results = await neonBatch(database, [
     {
-      query: 'INSERT INTO padanam_sets (workspace, id, updated_ms, payload) ' +
-        'SELECT $1, item->>\'id\', (item->>\'updatedMs\')::bigint, item->\'payload\' ' +
+      query: 'INSERT INTO padanam_sets (workspace, id, main_topic, sub_topic, updated_ms, payload) ' +
+        'SELECT $1, item->>\'id\', ' +
+        'COALESCE(LEFT(item->\'payload\'->>\'mainTopic\', 80), \'\'), ' +
+        'COALESCE(LEFT(item->\'payload\'->>\'subTopic\', 120), \'\'), ' +
+        '(item->>\'updatedMs\')::bigint, item->\'payload\' ' +
         'FROM jsonb_array_elements($2::jsonb) AS item ' +
-        'ON CONFLICT (workspace, id) DO UPDATE SET updated_ms = EXCLUDED.updated_ms, payload = EXCLUDED.payload ' +
+        'ON CONFLICT (workspace, id) DO UPDATE SET updated_ms = EXCLUDED.updated_ms, ' +
+        'payload = EXCLUDED.payload, main_topic = EXCLUDED.main_topic, sub_topic = EXCLUDED.sub_topic ' +
         'WHERE EXCLUDED.updated_ms > padanam_sets.updated_ms',
       params: [workspace, JSON.stringify(items)]
     },

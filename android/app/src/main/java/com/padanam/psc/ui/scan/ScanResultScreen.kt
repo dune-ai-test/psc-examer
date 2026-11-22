@@ -135,6 +135,8 @@ fun ScanResultScreen(
             val questionCount = summary?.questionCount ?: questions.size
             val subject = set?.subject?.takeIf { it.isNotBlank() } ?: "General"
             val title = set?.title?.takeIf { it.isNotBlank() } ?: "Scanned set"
+            val mainTopic = summary?.mainTopic ?: "Current Affairs"
+            val subTopic = summary?.subTopic ?: title
             val firstQuestion = questions.firstOrNull()
             val correctLetter = firstQuestion?.correctOption?.uppercase()?.take(1).orEmpty()
                 .ifBlank { "—" }
@@ -149,6 +151,8 @@ fun ScanResultScreen(
                         questionCount = questionCount,
                         subject = subject,
                         title = title,
+                        mainTopic = mainTopic,
+                        subTopic = subTopic,
                         appended = appended,
                         added = added
                     )
@@ -278,6 +282,8 @@ private fun SavedBanner(
     questionCount: Int,
     subject: String,
     title: String,
+    mainTopic: String,
+    subTopic: String,
     appended: Boolean,
     added: Int
 ) {
@@ -323,6 +329,13 @@ private fun SavedBanner(
                 },
                 style = AppType.MonoSmall.copy(letterSpacing = 0.2.sp),
                 color = IndigoMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${mainTopic.uppercase()} · ${subTopic.uppercase()}",
+                style = AppType.MonoSmall.copy(letterSpacing = 0.4.sp),
+                color = Indigo,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

@@ -10,7 +10,7 @@
   var icon = A.icon;
 
   var ui = A.ui = A.ui || {};
-  ui.library = ui.library || { q: '', subject: 'all', source: 'all', sort: 'recent' };
+  ui.library = ui.library || { q: '', mainTopic: 'all', subject: 'all', source: 'all', sort: 'recent' };
   ui.setLang = ui.setLang || null;
   ui.reviewFilter = ui.reviewFilter || 'all';
   ui.showKey = false;
@@ -27,6 +27,8 @@
     progress: 0,
     title: '',
     subject: '',
+    mainTopic: '',
+    subTopic: '',
     language: 'both',
     targetSetId: ''
   };
@@ -104,6 +106,24 @@
     }).join('');
   }
 
+  function mainTopicOptions(selected) {
+    return (A.MAIN_TOPICS || []).map(function (topic) {
+      return '<option value="' + e(topic) + '"' + (topic === selected ? ' selected' : '') + '>' + e(topic) + '</option>';
+    }).join('');
+  }
+
+  function subTopicList(id) {
+    var values = [];
+    A.state.sets.forEach(function (set) {
+      var value = A.subTopicFor(set);
+      if (value && values.indexOf(value) < 0) values.push(value);
+    });
+    values.sort(function (a, b) { return a.localeCompare(b); });
+    return '<datalist id="' + e(id) + '">' + values.map(function (value) {
+      return '<option value="' + e(value) + '"></option>';
+    }).join('') + '</datalist>';
+  }
+
   function sourceCounts() {
     var counts = { all: A.state.sets.length, demo: 0, scan: 0, manual: 0 };
     A.state.sets.forEach(function (set) { if (counts[set.source] !== undefined) counts[set.source]++; });
@@ -127,7 +147,7 @@
       '<span class="set-row-icon">' + icon('book') + '</span>' +
       '<span class="set-row-copy">' +
         '<strong>' + e(set.title) + '</strong>' +
-        '<small>' + e(set.subject) + ' · ' + A.plural(set.questions.length, 'question') + '</small>' +
+        '<small>' + e(clip(A.subTopicFor(set), 38)) + ' · ' + e(clip(A.mainTopicFor(set), 30)) + '</small>' +
       '</span>' +
       '<span class="set-row-score">' + trailing + '</span>' +
       icon('chevron-right') +
@@ -340,16 +360,51 @@
   };
 
   /* ── Library ─────────────────────────────────────────── */
+  function setCardHTML(set) {
+    var b = A.setBreakdown(set.id);
+    return '<a class="set-card" href="#/set/' + e(set.id) + '">' +
+      '<div class="set-card-top">' +
+        '<span class="set-subject">' + e(A.mainTopicFor(set)) + '</span>' +
+        A.sourceChip(set.source) +
+      '</div>' +
+      '<h3>' + e(set.title) + '</h3>' +
+      '<p class="set-card-subtopic">' + icon('book') + ' ' + e(A.subTopicFor(set)) + '</p>' +
+      '<div class="set-card-meta">' +
+        '<span>' + e(set.subject) + '</span>' +
+        '<span class="dot-sep">·</span><span>' + set.questions.length + ' questions</span>' +
+        '<span class="dot-sep">·</span><span>' + A.fmtRelative(set.updatedAt) + '</span>' +
+      '</div>' +
+      '<div class="set-card-foot">' +
+        '<span class="set-card-score">' +
+          (b.attempts ? '<span class="chip chip--success">Best ' + b.best + '%</span> ' + A.plural(b.attempts, 'attempt') : '<span class="chip">New</span> Not attempted') +
+        '</span>' +
+        '<span class="set-card-play">' + icon('play') + '</span>' +
+      '</div>' +
+    '</a>';
+  }
+
   views.library = function () {
     var L = ui.library;
     var admin = isAdmin();
     var sets = A.state.sets;
     var subjects = [];
+    var topics = [];
     sets.forEach(function (set) {
       if (subjects.indexOf(set.subject) < 0) subjects.push(set.subject);
+      var topic = A.mainTopicFor(set);
+      if (topics.indexOf(topic) < 0) topics.push(topic);
     });
     if (L.subject !== 'all' && subjects.indexOf(L.subject) < 0) L.subject = 'all';
+    if (L.mainTopic !== 'all' && topics.indexOf(L.mainTopic) < 0) L.mainTopic = 'all';
+    topics.sort(function (a, b) { return A.topicRank(a) - A.topicRank(b); });
     var counts = sourceCounts();
+
+    var topicSelect = '<select class="select" data-library-topic aria-label="Filter by main topic">' +
+      '<option value="all">All main topics</option>' +
+      topics.map(function (name) {
+        return '<option value="' + e(name) + '"' + (L.mainTopic === name ? ' selected' : '') + '>' + e(name) + '</option>';
+      }).join('') +
+    '</select>';
 
     var subjectSelect = '<select class="select" data-library-subject aria-label="Filter by subject">' +
       '<option value="all">All subjects</option>' +
@@ -360,6 +415,7 @@
 
     var sortSelect = '<select class="select" data-library-sort aria-label="Sort sets">' +
       '<option value="recent"' + (L.sort === 'recent' ? ' selected' : '') + '>Recently updated</option>' +
+      '<option value="topic"' + (L.sort === 'topic' ? ' selected' : '') + '>Group by main topic</option>' +
       '<option value="title"' + (L.sort === 'title' ? ' selected' : '') + '>Title A–Z</option>' +
       '<option value="questions"' + (L.sort === 'questions' ? ' selected' : '') + '>Most questions</option>' +
       '<option value="best"' + (L.sort === 'best' ? ' selected' : '') + '>Best score</option>' +
@@ -377,8 +433,8 @@
 
     return pageHead('Question library', 'Your question bank',
       admin
-        ? 'Every paper you scan or type lives here. Search across sets, questions and subjects.'
-        : 'The sets assigned to your account live here. Search across sets, questions and subjects.',
+        ? 'Every paper you scan or type lives here. Search by title, main topic, subtopic or subject.'
+        : 'The sets assigned to your account live here. Search by title, main topic, subtopic or subject.',
       (admin
         ? '<a class="btn btn-ghost" href="#/scan">' + icon('scan') + ' Scan paper</a>' +
           '<button type="button" class="btn btn-primary" data-action="open-set-form">' + icon('plus') + ' New set</button>'
@@ -387,8 +443,9 @@
       '<div class="library-tools">' +
         '<label class="search-box">' +
           icon('search') +
-          '<input class="input" type="search" placeholder="Search sets, subjects or questions…" value="' + e(L.q) + '" data-library-search aria-label="Search library">' +
+          '<input class="input" type="search" placeholder="Search sets, topics or subjects…" value="' + e(L.q) + '" data-library-search aria-label="Search library">' +
         '</label>' +
+        topicSelect +
         subjectSelect +
         sortSelect +
       '</div>' +
@@ -402,53 +459,26 @@
     var sets = A.state.sets.filter(function (set) {
       if (L.source !== 'all' && set.source !== L.source) return false;
       if (L.subject !== 'all' && set.subject !== L.subject) return false;
+      if (L.mainTopic !== 'all' && A.mainTopicFor(set) !== L.mainTopic) return false;
       if (!query) return true;
-      if ((set.title + ' ' + set.titleMl + ' ' + set.subject).toLowerCase().indexOf(query) >= 0) return true;
-      return set.questions.some(function (q) {
-        var hay = (q.en.stem + ' ' + (q.ml ? q.ml.stem : '') + ' ' + q.en.options.join(' ') + ' ' + (q.ml ? q.ml.options.join(' ') : '')).toLowerCase();
-        return hay.indexOf(query) >= 0;
-      });
+      var meta = (set.title + ' ' + set.titleMl + ' ' + set.subject + ' ' +
+        A.mainTopicFor(set) + ' ' + A.subTopicFor(set)).toLowerCase();
+      return meta.indexOf(query) >= 0;
     });
 
     sets.sort(function (a, b) {
       if (L.sort === 'title') return a.title.localeCompare(b.title);
+      if (L.sort === 'topic') {
+        return A.topicRank(A.mainTopicFor(a)) - A.topicRank(A.mainTopicFor(b)) ||
+          A.subTopicFor(a).localeCompare(A.subTopicFor(b)) ||
+          a.title.localeCompare(b.title);
+      }
       if (L.sort === 'questions') return b.questions.length - a.questions.length;
       if (L.sort === 'best') return A.setBreakdown(b.id).best - A.setBreakdown(a.id).best;
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
 
-    var showNew = isAdmin() && L.source === 'all' && L.subject === 'all' && !query;
-    var cards = sets.map(function (set) {
-      var b = A.setBreakdown(set.id);
-      var bilingual = set.questions.some(function (q) { return !!q.ml; });
-      return '<a class="set-card" href="#/set/' + e(set.id) + '">' +
-        '<div class="set-card-top">' +
-          '<span class="set-subject">' + e(set.subject) + '</span>' +
-          A.sourceChip(set.source) +
-        '</div>' +
-        '<h3>' + e(set.title) + '</h3>' +
-        '<div class="set-card-meta">' +
-          '<span>' + set.questions.length + ' questions</span>' +
-          '<span class="dot-sep">·</span><span>' + (bilingual ? 'Bilingual' : 'English') + '</span>' +
-          '<span class="dot-sep">·</span><span>' + A.fmtRelative(set.updatedAt) + '</span>' +
-        '</div>' +
-        '<div class="set-card-foot">' +
-          '<span class="set-card-score">' +
-            (b.attempts ? '<span class="chip chip--success">Best ' + b.best + '%</span> ' + A.plural(b.attempts, 'attempt') : '<span class="chip">New</span> Not attempted') +
-          '</span>' +
-          '<span class="set-card-play">' + icon('play') + '</span>' +
-        '</div>' +
-      '</a>';
-    }).join('');
-
-    if (showNew) {
-      cards += '<button type="button" class="new-card" data-action="open-set-form">' +
-        '<span class="new-card-icon">' + icon('plus') + '</span>' +
-        '<strong>Create a set</strong>' +
-        '<small>Start blank and add questions</small>' +
-      '</button>';
-    }
-
+    var showNew = isAdmin() && L.source === 'all' && L.subject === 'all' && L.mainTopic === 'all' && !query && L.sort !== 'topic';
     var total = A.state.sets.length;
     if (!sets.length) {
       var action = total
@@ -458,13 +488,47 @@
           : '<a class="btn btn-ghost" href="#/home">' + icon('home') + ' Home</a>';
       return '<div class="card">' + emptyState('search', total ? 'No sets match' : (isAdmin() ? 'Your library is empty' : 'No sets assigned yet'),
         total
-          ? 'Try a different search, subject or source filter.'
+          ? 'Try a different search, main topic, subject or source filter.'
           : isAdmin()
             ? 'Scan a question paper, create a set by hand, or restore the demo sets.'
             : 'Your administrator assigns sets to this account. They will appear here after the next sync.', action) + '</div>';
     }
 
-    return '<div class="set-grid">' + cards + '</div>' +
+    var body;
+    if (L.sort === 'topic') {
+      var groups = [];
+      sets.forEach(function (set) {
+        var topic = A.mainTopicFor(set);
+        var group = groups.filter(function (item) { return item.topic === topic; })[0];
+        if (!group) {
+          group = { topic: topic, sets: [] };
+          groups.push(group);
+        }
+        group.sets.push(set);
+      });
+      body = groups.map(function (group) {
+        var cards = group.sets.map(setCardHTML).join('');
+        return '<section class="topic-group">' +
+          '<div class="topic-group-head">' +
+            '<h2>' + e(group.topic) + '</h2>' +
+            '<span class="chip">' + A.plural(group.sets.length, 'set') + '</span>' +
+          '</div>' +
+          '<div class="set-grid">' + cards + '</div>' +
+        '</section>';
+      }).join('');
+    } else {
+      var cards = sets.map(setCardHTML).join('');
+      if (showNew) {
+        cards += '<button type="button" class="new-card" data-action="open-set-form">' +
+          '<span class="new-card-icon">' + icon('plus') + '</span>' +
+          '<strong>Create a set</strong>' +
+          '<small>Start blank and add questions</small>' +
+        '</button>';
+      }
+      body = '<div class="set-grid">' + cards + '</div>';
+    }
+
+    return body +
       '<p class="library-count">Showing ' + sets.length + ' of ' + total + ' sets · ' + A.libraryStats().questions + ' questions in your library</p>';
   };
 
@@ -548,11 +612,13 @@
       '<section class="set-hero">' +
         '<div class="set-hero-top">' +
           '<div>' +
-            '<span class="set-subject">' + e(set.subject) + '</span>' +
+            '<span class="set-subject">' + e(A.mainTopicFor(set)) + '</span>' +
             '<h1>' + e(set.title) + '</h1>' +
             (set.titleMl ? '<p class="ml" style="margin-top:4px;color:var(--muted);font-size:14px">' + e(set.titleMl) + '</p>' : '') +
+            '<p class="set-subtopic-line">' + icon('book') + ' ' + e(A.subTopicFor(set)) + '</p>' +
             '<div class="set-hero-sub">' +
               A.sourceChip(set.source) +
+              '<span class="chip">' + e(set.subject) + '</span>' +
               '<span class="chip">' + set.questions.length + ' questions</span>' +
               (hasMl ? '<span class="chip chip--indigo">Bilingual</span>' : '<span class="chip">English</span>') +
               '<span>Updated ' + A.fmtRelative(set.updatedAt) + '</span>' +
@@ -601,6 +667,9 @@
           '<div class="card aside-card">' +
             '<h3>About this set</h3>' +
             '<div class="about-list">' +
+              '<div><span>Main topic</span><strong>' + e(A.mainTopicFor(set)) + '</strong></div>' +
+              '<div><span>Subtopic</span><strong>' + e(A.subTopicFor(set)) + '</strong></div>' +
+              '<div><span>Subject</span><strong>' + e(set.subject) + '</strong></div>' +
               '<div><span>Source</span><strong>' + A.sourceLabel(set.source) + '</strong></div>' +
               '<div><span>Created</span><strong>' + A.fmtDate(set.createdAt) + '</strong></div>' +
               '<div><span>Updated</span><strong>' + A.fmtDate(set.updatedAt) + '</strong></div>' +
@@ -633,8 +702,25 @@
             '<input class="input" id="setTitleMl" name="titleMl" lang="ml" maxlength="90" placeholder="മലയാളം തലക്കെട്ട്" value="' + e(editing ? set.titleMl : '') + '">' +
           '</div>' +
         '</div>' +
+        '<div class="form-grid" style="margin-top:14px">' +
+          '<div class="field">' +
+            '<label class="field-label" for="setMainTopic">Main topic</label>' +
+            '<select class="select" id="setMainTopic" name="mainTopic">' +
+              mainTopicOptions(editing ? A.mainTopicFor(set) : A.normalizeMainTopic('', '', 'General Knowledge')) +
+            '</select>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label class="field-label" for="setSubTopic">Subtopic</label>' +
+            '<input class="input" id="setSubTopic" name="subTopic" list="setSubTopicList" maxlength="120" placeholder="e.g. Kerala Geography" value="' + e(editing ? A.subTopicFor(set) : '') + '">' +
+            subTopicList('setSubTopicList') +
+          '</div>' +
+        '</div>' +
+        '<div class="topic-suggest-row">' +
+          '<button type="button" class="btn btn-soft btn-sm" data-action="set-suggest-topic">' + icon('spark') + ' Suggest with AI</button>' +
+          '<span class="field-hint">Uses the set title, subject and questions to pick a fixed main topic and a reusable subtopic.</span>' +
+        '</div>' +
         '<p class="field-hint" style="margin-top:10px">' + (editing
-          ? 'Renaming a set does not change questions or past results.'
+          ? 'Changing the main topic or subtopic moves this set in the library. Questions and past results stay unchanged.'
           : 'Next you can add questions by hand, or scan a paper to fill the set.') + '</p>' +
       '</form>';
 
@@ -781,6 +867,9 @@
     var target = scanTargetSet();
     var titleValue = scan.title || (result ? result.title : '');
     var subjectValue = scan.subject || (result ? result.subject : 'General Knowledge');
+    var mainTopicValue = scan.mainTopic || (result ? result.mainTopic : '') ||
+      A.normalizeMainTopic('', titleValue, subjectValue);
+    var subTopicValue = scan.subTopic || (result ? result.subTopic : '');
     var language = scan.language || 'both';
     var atLimit = images.length >= A.gemini.MAX_IMAGES;
 
@@ -877,6 +966,23 @@
                   '</select>' +
                 '</div>' +
               '</div>' +
+              (target
+                ? ''
+                : '<div class="form-grid" style="margin-top:12px">' +
+                    '<div class="field">' +
+                      '<label class="field-label" for="scanMainTopic">Main topic</label>' +
+                      '<select class="select" id="scanMainTopic" data-scan-field="mainTopic">' + mainTopicOptions(mainTopicValue) + '</select>' +
+                    '</div>' +
+                    '<div class="field">' +
+                      '<label class="field-label" for="scanSubTopic">Subtopic</label>' +
+                      '<input class="input" id="scanSubTopic" data-scan-field="subTopic" list="scanSubTopicList" maxlength="120" placeholder="e.g. Kerala Geography" value="' + e(subTopicValue) + '">' +
+                      subTopicList('scanSubTopicList') +
+                    '</div>' +
+                  '</div>' +
+                  '<div class="topic-suggest-row">' +
+                    '<button type="button" class="btn btn-soft btn-sm" data-action="scan-suggest-topic">' + icon('spark') + ' Suggest with AI</button>' +
+                    '<span class="field-hint">Extraction usually fills these automatically. You can refine them before saving.</span>' +
+                  '</div>') +
               actions +
             '</div>' +
           '</section>' +
@@ -954,6 +1060,12 @@
 
     var result = scan.result;
     var target = scanTargetSet();
+    var resultTopic = target
+      ? A.mainTopicFor(target)
+      : (scan.mainTopic || result.mainTopic || A.normalizeMainTopic('', result.title, result.subject));
+    var resultSubTopic = target
+      ? A.subTopicFor(target)
+      : (scan.subTopic || result.subTopic || result.title || 'General');
     var bilingual = result.questions.filter(function (q) { return !!q.ml; }).length;
     var preview = result.questions.slice(0, 3).map(function (q, index) {
       var v = A.questionFor(q, A.state.profile.language);
@@ -976,7 +1088,10 @@
           : 'Nothing is saved yet. Check the questions, then add them to your library.') + '</p></div>' +
       '</div>' +
       '<div class="scan-result-count"><strong>' + result.questions.length + '</strong><span>questions extracted' + (bilingual ? ' · ' + bilingual + ' bilingual' : '') + '</span></div>' +
-      '<div class="tag-row" style="margin-top:8px"><span class="chip chip--indigo">' + e(target ? target.subject : (result.subject || 'General Knowledge')) + '</span>' +
+      '<div class="tag-row" style="margin-top:8px">' +
+        '<span class="chip chip--indigo">' + e(resultTopic) + '</span>' +
+        '<span class="chip">' + e(resultSubTopic) + '</span>' +
+        '<span class="chip">' + e(target ? target.subject : (result.subject || 'General Knowledge')) + '</span>' +
         (target ? '<span class="chip">→ ' + e(target.title) + '</span>' : '') +
         '<span class="chip chip--success">Draft</span></div>' +
       (A.state.sets.length ? '<div style="margin-top:14px">' + scanTargetField('scanResultTarget') + '</div>' : '') +
@@ -1003,7 +1118,26 @@
       A.refresh();
       return;
     }
-    if (name === 'title' || name === 'subject' || name === 'language') scan[name] = value;
+    if (name === 'title' || name === 'subject' || name === 'language' || name === 'mainTopic' || name === 'subTopic') scan[name] = value;
+  };
+
+  views.scanTopicInfo = function () {
+    var result = scan.result;
+    return {
+      title: scan.title || (result ? result.title : ''),
+      subject: scan.subject || (result ? result.subject : 'General Knowledge'),
+      subTopic: scan.subTopic || (result ? result.subTopic : ''),
+      samples: result ? result.questions.slice(0, 8).map(function (q) { return q.en.stem; }) : []
+    };
+  };
+
+  views.applyScanTopics = function (mainTopic, subTopic) {
+    scan.mainTopic = String(mainTopic || '').trim();
+    scan.subTopic = String(subTopic || '').trim();
+    if (scan.result) {
+      scan.result.mainTopic = scan.mainTopic;
+      scan.result.subTopic = scan.subTopic;
+    }
   };
 
   views.scanRemove = function (index) {
@@ -1120,6 +1254,10 @@
       }
 
       scan.result = extraction;
+      if (!target) {
+        if (extraction.mainTopic) scan.mainTopic = extraction.mainTopic;
+        if (extraction.subTopic) scan.subTopic = extraction.subTopic;
+      }
       scan.busy = false;
       scan.stage = 'done';
       scan.progress = 1;
@@ -1162,11 +1300,15 @@
       var title = String(scan.title || scan.result.title || '').trim() ||
         ('Scanned paper · ' + A.fmtDateShort(now));
       var subject = scan.subject || scan.result.subject || 'General Knowledge';
+      var mainTopic = A.normalizeMainTopic(scan.mainTopic || scan.result.mainTopic, title, subject);
+      var subTopic = String(scan.subTopic || scan.result.subTopic || '').trim() || title;
       var set = {
         id: A.uid('set'),
         title: title,
         titleMl: '',
         subject: subject,
+        mainTopic: mainTopic,
+        subTopic: subTopic,
         source: 'scan',
         createdAt: now,
         updatedAt: now,
@@ -1185,6 +1327,8 @@
     scan.progress = 0;
     scan.title = '';
     scan.subject = '';
+    scan.mainTopic = '';
+    scan.subTopic = '';
     scan.language = 'both';
     scan.targetSetId = '';
 
@@ -1206,6 +1350,8 @@
     scan.progress = 0;
     scan.title = '';
     scan.subject = '';
+    scan.mainTopic = '';
+    scan.subTopic = '';
     scan.language = 'both';
     scan.targetSetId = '';
     A.refresh();
@@ -1984,7 +2130,11 @@
               '<div class="admin-set-list">' + available.map(function (set) {
                 return '<label class="check-row admin-set-choice">' +
                   '<input type="checkbox" name="setIds" value="' + e(set.id) + '">' +
-                  '<span><strong>' + e(set.title) + '</strong><small>' + e(set.subject) + ' · ' + A.plural(set.questions, 'question') + '</small></span>' +
+                  '<span><strong>' + e(set.title) + '</strong><small>' +
+                    e(A.normalizeMainTopic(set.mainTopic, set.title, set.subject)) + ' · ' +
+                    e(set.subTopic || set.title) + ' · ' +
+                    A.plural(set.questions, 'question') +
+                  '</small></span>' +
                 '</label>';
               }).join('') + '</div>' +
               '<div class="form-actions" style="margin-top:10px">' +

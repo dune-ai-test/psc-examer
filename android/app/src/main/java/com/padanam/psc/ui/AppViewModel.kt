@@ -15,6 +15,8 @@ import com.padanam.psc.data.model.AnswerRecord
 import com.padanam.psc.data.model.QuizMode
 import com.padanam.psc.data.model.SetSummary
 import com.padanam.psc.data.model.SyncOutcome
+import com.padanam.psc.data.model.TopicSuggestion
+import com.padanam.psc.data.model.Topics
 import com.padanam.psc.data.model.ViewMode
 import com.padanam.psc.data.prefs.AppSettings
 import com.padanam.psc.data.remote.ProviderModel
@@ -609,7 +611,13 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun createSet(title: String, titleMl: String, subject: String) {
+    fun createSet(
+        title: String,
+        titleMl: String,
+        subject: String,
+        mainTopic: String = "",
+        subTopic: String = ""
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             if (!isAdmin()) {
                 emit(UiEvent("Switch to the admin view to create sets.", error = true))
@@ -619,7 +627,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
                 emit(UiEvent("Give the set a name first.", error = true))
                 return@launch
             }
-            runCatching { libraryRepo.createSet(title, titleMl, subject) }
+            runCatching { libraryRepo.createSet(title, titleMl, subject, mainTopic, subTopic) }
                 .onSuccess {
                     emit(UiEvent("Set created. Add its first question."))
                     syncInBackground()
@@ -628,7 +636,14 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun updateSetDetails(setId: String, title: String, titleMl: String, subject: String) {
+    fun updateSetDetails(
+        setId: String,
+        title: String,
+        titleMl: String,
+        subject: String,
+        mainTopic: String? = null,
+        subTopic: String? = null
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             if (!isAdmin()) {
                 emit(UiEvent("Switch to the admin view to edit sets.", error = true))
@@ -638,7 +653,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
                 emit(UiEvent("The set name cannot be empty.", error = true))
                 return@launch
             }
-            libraryRepo.updateSetDetails(setId, title, titleMl, subject)
+            libraryRepo.updateSetDetails(setId, title, titleMl, subject, mainTopic, subTopic)
             val active = runCatching { container.examStore.activeExam.first() }.getOrNull()
             if (active?.setId == setId) {
                 container.examStore.save(
@@ -650,6 +665,57 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             }
             emit(UiEvent("Set details saved."))
             syncInBackground()
+        }
+    }
+
+    /**
+     * Asks the server-side provider for a topic pair, then falls back to the
+     * same title/subject heuristic used by the web app. Provider keys stay in
+     * Cloudflare; the phone only sends text.
+     */
+    suspend fun suggestTopics(
+        title: String,
+        subject: String,
+        subTopic: String,
+        samples: List<String>
+    ): TopicSuggestion = withContext(Dispatchers.IO) {
+        val local = TopicSuggestion(
+            mainTopic = Topics.normalize("", title, subject),
+            subTopic = Topics.subTopic(subTopic, title),
+            source = "local"
+        )
+        val settings = settingsRepo.current()
+        val active = container.authRepository.current()
+        if (settings.serverUrl.isBlank() || active == null) {
+            emit(UiEvent("AI is unavailable. Filled a local topic guess."))
+            return@withContext local
+        }
+
+        val existing = dao.setsOnce()
+            .map { Topics.subTopic(it.subTopic, it.title) }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(30)
+
+        runCatching {
+            container.serverApi.classifyTopic(
+                baseUrl = settings.serverUrl,
+                token = active.token,
+                title = title,
+                subject = subject,
+                subTopic = subTopic,
+                subTopics = existing,
+                samples = samples
+            )
+        }.getOrElse { error ->
+            val reason = error.message?.takeIf { it.isNotBlank() }
+                ?: "The AI could not classify this set."
+            emit(UiEvent("$reason Filled a local topic guess instead."))
+            local
+        }.also {
+            if (it.source == "ai") {
+                emit(UiEvent("Topic suggested: ${it.mainTopic} · ${it.subTopic}"))
+            }
         }
     }
 

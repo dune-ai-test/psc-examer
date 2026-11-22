@@ -7,6 +7,7 @@ import com.padanam.psc.data.model.AiOption
 import com.padanam.psc.data.model.AiQuestion
 import com.padanam.psc.data.model.AiScanResult
 import com.padanam.psc.data.model.ScanDestination
+import com.padanam.psc.data.model.Topics
 import com.padanam.psc.data.prefs.AppSettings
 import com.padanam.psc.util.AppJson
 import kotlinx.serialization.builtins.ListSerializer
@@ -70,12 +71,15 @@ class LibraryRepository(private val dao: AppDao) {
         val now = System.currentTimeMillis()
         val existingTitles = dao.setsOnce().map { it.title.lowercase() }.toSet()
         val title = uniqueTitle(result.title.ifBlank { "Scanned set" }, existingTitles)
+        val subject = result.subject.ifBlank { "General" }
         val setId = "set_${UUID.randomUUID()}"
 
         val set = SetEntity(
             id = setId,
             title = title,
-            subject = result.subject.ifBlank { "General" },
+            subject = subject,
+            mainTopic = Topics.normalize(result.mainTopic, title, subject),
+            subTopic = Topics.subTopic(result.subTopic, title),
             createdAt = now,
             updatedAt = now,
             source = source,
@@ -131,27 +135,53 @@ class LibraryRepository(private val dao: AppDao) {
                 id = summary.id,
                 title = summary.title,
                 subject = summary.subject,
+                mainTopic = summary.mainTopic,
+                subTopic = summary.subTopic,
                 questionCount = summary.questionCount
             )
         }
+
+    /** Existing subtopic labels, reused when the administrator edits a set. */
+    suspend fun subTopics(): List<String> =
+        dao.setsOnce()
+            .map { Topics.subTopic(it.subTopic, it.title) }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sortedBy { it.lowercase() }
 
     suspend fun titleOf(setId: String): String = dao.getSet(setId)?.title.orEmpty()
 
     suspend fun renameSet(setId: String, newTitle: String, newTitleMl: String) {
         val set = dao.getSet(setId) ?: return
-        updateSetDetails(setId, newTitle, newTitleMl, set.subject)
+        updateSetDetails(
+            setId = setId,
+            title = newTitle,
+            titleMl = newTitleMl,
+            subject = set.subject,
+            mainTopic = set.mainTopic,
+            subTopic = set.subTopic
+        )
     }
 
     /** Creates an empty administrator-authored set ready for questions. */
-    suspend fun createSet(title: String, titleMl: String, subject: String): String {
+    suspend fun createSet(
+        title: String,
+        titleMl: String,
+        subject: String,
+        mainTopic: String = "",
+        subTopic: String = ""
+    ): String {
         val now = System.currentTimeMillis()
         val existingTitles = dao.setsOnce().map { it.title.lowercase() }.toSet()
         val cleanTitle = uniqueTitle(title.ifBlank { "Untitled set" }, existingTitles)
+        val cleanSubject = subject.trim().take(60).ifBlank { "General" }
         val set = SetEntity(
             id = "set_${UUID.randomUUID()}",
             title = cleanTitle,
             titleMl = titleMl.trim().take(120),
-            subject = subject.trim().take(60).ifBlank { "General" },
+            subject = cleanSubject,
+            mainTopic = Topics.normalize(mainTopic, cleanTitle, cleanSubject),
+            subTopic = Topics.subTopic(subTopic, cleanTitle),
             createdAt = now,
             updatedAt = now,
             source = SOURCE_MANUAL
@@ -164,13 +194,22 @@ class LibraryRepository(private val dao: AppDao) {
         setId: String,
         title: String,
         titleMl: String,
-        subject: String
+        subject: String,
+        mainTopic: String? = null,
+        subTopic: String? = null
     ) {
         val set = dao.getSet(setId) ?: return
         val cleanTitle = title.trim().take(80).ifBlank { set.title }
         val cleanMl = titleMl.trim().take(120)
         val cleanSubject = subject.trim().take(60).ifBlank { "General" }
-        if (cleanTitle == set.title && cleanMl == set.titleMl && cleanSubject == set.subject) {
+        val cleanMain = Topics.normalize(mainTopic ?: set.mainTopic, cleanTitle, cleanSubject)
+        val cleanSub = Topics.subTopic(subTopic ?: set.subTopic, cleanTitle)
+        if (cleanTitle == set.title &&
+            cleanMl == set.titleMl &&
+            cleanSubject == set.subject &&
+            cleanMain == set.mainTopic &&
+            cleanSub == set.subTopic
+        ) {
             return
         }
         dao.updateSet(
@@ -178,6 +217,8 @@ class LibraryRepository(private val dao: AppDao) {
                 title = cleanTitle,
                 titleMl = cleanMl,
                 subject = cleanSubject,
+                mainTopic = cleanMain,
+                subTopic = cleanSub,
                 updatedAt = System.currentTimeMillis(),
                 synced = false
             )

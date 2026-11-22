@@ -11,6 +11,8 @@ data class SetEntity(
     val title: String,
     val titleMl: String = "",
     val subject: String,
+    val mainTopic: String = "",
+    val subTopic: String = "",
     val createdAt: Long,
     val updatedAt: Long = createdAt,
     val source: String = "scan",

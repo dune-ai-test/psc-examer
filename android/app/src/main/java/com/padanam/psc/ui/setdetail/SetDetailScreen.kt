@@ -9,12 +9,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -33,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,6 +67,7 @@ import com.padanam.psc.ui.components.QuestionText
 import com.padanam.psc.ui.components.ResultChip
 import com.padanam.psc.ui.components.SectionHeading
 import com.padanam.psc.ui.components.TopBar
+import com.padanam.psc.ui.components.TopicEditor
 import com.padanam.psc.ui.theme.AmberInk
 import com.padanam.psc.ui.theme.AmberSoft
 import com.padanam.psc.ui.theme.AppType
@@ -79,6 +84,7 @@ import com.padanam.psc.ui.theme.SurfaceMuted
 import com.padanam.psc.ui.theme.SurfaceWhite
 import com.padanam.psc.util.Format
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun SetDetailScreen(
@@ -92,10 +98,15 @@ fun SetDetailScreen(
     val summary by appVm.setSummary(setId).collectAsStateWithLifecycle(initialValue = null)
     val questions by appVm.questions(setId).collectAsStateWithLifecycle(emptyList())
     val attempts by appVm.attempts.collectAsStateWithLifecycle()
+    val library by appVm.sets.collectAsStateWithLifecycle()
     val settings by appVm.settings.collectAsStateWithLifecycle()
     val activeExam by appVm.activeExam.collectAsStateWithLifecycle()
 
     val setAttempts = attempts.filter { it.setId == setId }
+    val subTopicSuggestions = library.map { it.subTopic }
+        .distinct()
+        .sortedBy { it.lowercase() }
+    val scope = rememberCoroutineScope()
     var language by rememberSaveable(setId) { mutableStateOf(settings.language) }
     var renameOpen by remember { mutableStateOf(false) }
     var editorOpen by remember { mutableStateOf(false) }
@@ -405,7 +416,8 @@ fun SetDetailScreen(
 
             item {
                 Text(
-                    "Created ${Format.relativeTime(info.createdAt)} · ${info.subject}",
+                    "Created ${Format.relativeTime(info.createdAt)} · ${info.subject} · " +
+                        "${info.mainTopic} · ${info.subTopic}",
                     style = AppType.MonoSmall,
                     color = InkMuted
                 )
@@ -417,15 +429,23 @@ fun SetDetailScreen(
         var title by remember(info.id) { mutableStateOf(info.title) }
         var titleMl by remember(info.id) { mutableStateOf(info.set.titleMl) }
         var subject by remember(info.id) { mutableStateOf(info.subject) }
+        var mainTopic by remember(info.id) { mutableStateOf(info.mainTopic) }
+        var subTopic by remember(info.id) { mutableStateOf(info.subTopic) }
+        var suggesting by remember(info.id) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { renameOpen = false },
             containerColor = SurfaceWhite,
             shape = RoundedCornerShape(24.dp),
             title = { Text("Edit set details", style = AppType.Question, color = Navy) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 430.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Text(
-                        "Give this set a name you will recognise in your library. The Malayalam title is optional and appears under the English name.",
+                        "Rename the set and move it between topics. Questions and past results stay unchanged.",
                         style = AppType.BodySmall,
                         color = InkMuted
                     )
@@ -450,13 +470,48 @@ fun SetDetailScreen(
                         placeholder = "General",
                         singleLine = true
                     )
+                    TopicEditor(
+                        mainTopic = mainTopic,
+                        onMainTopicChange = { mainTopic = it },
+                        subTopic = subTopic,
+                        onSubTopicChange = { subTopic = it },
+                        suggestions = subTopicSuggestions,
+                        onSuggest = {
+                            if (!suggesting) {
+                                suggesting = true
+                                scope.launch {
+                                    val suggestion = appVm.suggestTopics(
+                                        title = title,
+                                        subject = subject,
+                                        subTopic = subTopic,
+                                        samples = questions.take(8).map {
+                                            it.questionEn.ifBlank { it.questionMl }
+                                        }
+                                    )
+                                    mainTopic = suggestion.mainTopic
+                                    subTopic = suggestion.subTopic
+                                    suggesting = false
+                                }
+                            }
+                        },
+                        suggesting = suggesting,
+                        suggestEnabled = title.isNotBlank(),
+                        hint = "Changing either topic moves this set in the library immediately."
+                    )
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
                         if (title.isNotBlank()) {
-                            appVm.updateSetDetails(setId, title, titleMl, subject)
+                            appVm.updateSetDetails(
+                                setId,
+                                title,
+                                titleMl,
+                                subject,
+                                mainTopic,
+                                subTopic
+                            )
                             renameOpen = false
                         }
                     }
@@ -527,7 +582,7 @@ private fun SetHero(
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
-                summary.subject.uppercase(),
+                summary.mainTopic.uppercase(),
                 style = AppType.Eyebrow.copy(letterSpacing = 0.7.sp),
                 color = Color(0xFFA99BFF)
             )
@@ -548,7 +603,15 @@ private fun SetHero(
                 )
             }
             Text(
-                "${summary.questionCount} questions · ${summary.set.source} · ${Format.relativeTime(summary.createdAt)}",
+                "SUBTOPIC · ${summary.subTopic}",
+                style = AppType.MonoSmall.copy(letterSpacing = 0.6.sp),
+                color = OnDark.copy(alpha = 0.68f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "${summary.subject} · ${summary.questionCount} questions · " +
+                    "${summary.set.source} · ${Format.relativeTime(summary.createdAt)}",
                 style = AppType.BodyTiny,
                 color = OnDark.copy(alpha = 0.55f)
             )

@@ -1,6 +1,8 @@
 package com.padanam.psc.data.remote
 
 import com.padanam.psc.data.auth.AuthUser
+import com.padanam.psc.data.model.TopicSuggestion
+import com.padanam.psc.data.model.Topics
 import com.padanam.psc.data.remote.Network.client
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -51,6 +53,8 @@ data class AdminSet(
     val id: String,
     val title: String,
     val subject: String,
+    val mainTopic: String = "",
+    val subTopic: String = "",
     val questions: Int
 )
 
@@ -154,10 +158,14 @@ class ServerApi(
             }
             val sets = root.array("sets").mapNotNull { element ->
                 (element as? JsonObject)?.let { item ->
+                    val title = item.string("title").ifBlank { "Untitled set" }
+                    val subject = item.string("subject").ifBlank { "General" }
                     AdminSet(
                         id = item.string("id"),
-                        title = item.string("title").ifBlank { "Untitled set" },
-                        subject = item.string("subject").ifBlank { "General" },
+                        title = title,
+                        subject = subject,
+                        mainTopic = Topics.normalize(item.string("mainTopic"), title, subject),
+                        subTopic = Topics.subTopic(item.string("subTopic"), title),
                         questions = item["questions"]?.let { numberOrNull(it) } ?: 0
                     )
                 }
@@ -264,6 +272,44 @@ class ServerApi(
         val text = root.string("text")
         if (text.isBlank()) throw ServerException("The scanning service returned an empty answer.")
         text
+    }
+
+    /** Asks the server-side provider to choose a topic pair for one set. */
+    suspend fun classifyTopic(
+        baseUrl: String,
+        token: String?,
+        title: String,
+        subject: String,
+        subTopic: String,
+        subTopics: List<String>,
+        samples: List<String>
+    ): TopicSuggestion = withContext(Dispatchers.IO) {
+        val root = post(baseUrl, "/api/scan", token, buildJsonObject {
+            put("action", "classify")
+            put("title", title.trim().take(160))
+            put("subject", subject.trim().take(100))
+            put("subTopic", subTopic.trim().take(120))
+            put("subTopics", buildJsonArray {
+                subTopics.map { it.trim().take(80) }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .take(30)
+                    .forEach { add(JsonPrimitive(it)) }
+            })
+            put("samples", buildJsonArray {
+                samples.map { it.trim().take(400) }
+                    .filter { it.isNotBlank() }
+                    .take(8)
+                    .forEach { add(JsonPrimitive(it)) }
+            })
+        })
+        val cleanTitle = title.trim().take(80)
+        val cleanSubject = subject.trim().take(40)
+        TopicSuggestion(
+            mainTopic = Topics.normalize(root.string("mainTopic"), cleanTitle, cleanSubject),
+            subTopic = Topics.subTopic(root.string("subTopic"), cleanTitle),
+            source = "ai"
+        )
     }
 
     /** Reads the provider readiness payload without exposing any secret. */

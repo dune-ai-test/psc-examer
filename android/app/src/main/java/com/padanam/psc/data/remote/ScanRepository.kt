@@ -3,6 +3,7 @@ package com.padanam.psc.data.remote
 import com.padanam.psc.data.model.AiOption
 import com.padanam.psc.data.model.AiQuestion
 import com.padanam.psc.data.model.AiScanResult
+import com.padanam.psc.data.model.Topics
 import com.padanam.psc.util.AppJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -64,7 +65,9 @@ class ScanRepository(private val serverApi: ServerApi) {
         if (count != 1) append("s")
         append(". If two photographs overlap, return each question once.\n\n")
         append("Return only a JSON object with this exact shape:\n")
-        append("{\"title\":\"Short page title\",\"subject\":\"Broad subject\",\"questions\":[")
+        append("{\"title\":\"Short page title\",\"subject\":\"Broad subject\",")
+        append("\"mainTopic\":\"One exact main topic from the fixed list\",")
+        append("\"subTopic\":\"Short grouping label\",\"questions\":[")
         append("{\"question_en\":\"...\",\"question_ml\":\"...\",\"options\":[")
         append("{\"letter\":\"A\",\"text_en\":\"...\",\"text_ml\":\"...\"},")
         append("{\"letter\":\"B\",\"text_en\":\"...\",\"text_ml\":\"...\"},")
@@ -75,6 +78,11 @@ class ScanRepository(private val serverApi: ServerApi) {
         append("\"correct_option\":\"A\",\"explanation_en\":\"...\",\"explanation_ml\":\"...\",")
         append("\"topic\":\"Specific topic\",\"difficulty\":\"easy\",")
         append("\"confidence\":80}]}\n")
+        append("Choose mainTopic from this fixed list, exactly as written: ")
+        append(Topics.MAIN.joinToString("; "))
+        append(".\n")
+        append("subTopic is a reusable grouping label of two to six words for the set, ")
+        append("for example a paper family or chapter name. Do not use question numbers.\n")
         append("Use between two and six options per question. Omit E and F for four-option questions. Do not wrap the JSON in markdown.")
     }
 
@@ -132,9 +140,14 @@ class ScanRepository(private val serverApi: ServerApi) {
             )
         }
 
+        val cleanTitle = raw.title.clean().ifBlank { "Scanned set" }.take(80)
+        val cleanSubject = raw.subject.clean().ifBlank { "General" }.take(40)
+
         return AiScanResult(
-            title = raw.title.clean().ifBlank { "Scanned set" }.take(80),
-            subject = raw.subject.clean().ifBlank { "General" }.take(40),
+            title = cleanTitle,
+            subject = cleanSubject,
+            mainTopic = Topics.normalize(raw.mainTopic.clean(), cleanTitle, cleanSubject),
+            subTopic = Topics.subTopic(raw.subTopic.clean(), cleanTitle),
             questions = cleaned
         )
     }
@@ -181,7 +194,10 @@ class ScanRepository(private val serverApi: ServerApi) {
                one or two short sentences, in both languages.
             6. subject is the broad subject such as Biology, Physics, Chemistry,
                Mathematics, History, Geography, Malayalam or General Knowledge.
-               topic is the specific topic. Keep both short.
+               topic is the specific topic of one question. Keep both short.
+               mainTopic is the set-wide classification and must be one of the
+               fixed values supplied in the user prompt; never invent a new one.
+               subTopic is a short reusable grouping label for the whole set.
             7. difficulty is easy, medium or hard. confidence is 0-100 and describes how
                sure you are about THIS question's text, options and answer.
             8. title is a short human title for the page, for example

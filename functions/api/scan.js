@@ -11,6 +11,24 @@ const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
 const DEFAULT_OPENAI_URL = 'https://api.openai.com/v1';
 
+/* The same fixed taxonomy used by the web app and the Android app. */
+export const MAIN_TOPICS = [
+  'Biology & Public Health',
+  'Constitution',
+  'Current Affairs',
+  'Economics',
+  'English',
+  'Indian History',
+  'Information Technology',
+  'Kerala Governance',
+  'Kerala - World Geography',
+  'Kerala - World History',
+  'Malayalam',
+  'Mathematics & Mental Ability',
+  'Physical Science',
+  'Indian Geography'
+];
+
 export function onRequest(context) {
   if (context.request.method === 'GET') {
     return json(statusPayload(scanConfig(context.env)), 200);
@@ -32,8 +50,8 @@ async function handleScan(context) {
   }
 
   const action = body && body.action;
-  if (action !== 'test' && action !== 'extract') {
-    return json({ error: 'Unknown action. Use "test" or "extract".' }, 400);
+  if (action !== 'test' && action !== 'extract' && action !== 'classify') {
+    return json({ error: 'Unknown action. Use "test", "extract" or "classify".' }, 400);
   }
 
   if (!config.ready) {
@@ -52,6 +70,22 @@ async function handleScan(context) {
       });
     } catch (err) {
       return json({ error: err.message || 'The provider could not be reached.' }, 502);
+    }
+  }
+
+  if (action === 'classify') {
+    try {
+      const topic = await classifyTopic(config, body);
+      return json({
+        ok: true,
+        mainTopic: topic.mainTopic,
+        subTopic: topic.subTopic,
+        provider: config.id,
+        model: config.model,
+        host: config.host
+      });
+    } catch (err) {
+      return json({ error: err.message || 'The provider could not classify this set.' }, 502);
     }
   }
 
@@ -274,6 +308,196 @@ async function runExtract(config, prompt, images) {
       : 'The endpoint returned an empty response. Try fewer pages or another model.');
   }
   return text;
+}
+
+async function classifyTopic(config, body) {
+  const title = cleanInput(body && body.title, 160);
+  const subject = cleanInput(body && body.subject, 100);
+  const currentSubTopic = cleanInput(body && body.subTopic, 120);
+  const subTopics = stringList(body && body.subTopics, 30, 80);
+  const samples = stringList(body && body.samples, 8, 400);
+
+  if (!title && !subject && !samples.length) {
+    throw new Error('Add a set title, subject or a few questions before asking the AI.');
+  }
+
+  const prompt = [
+    'You classify question sets for a Kerala PSC study library.',
+    'Choose exactly one main topic from this fixed list:',
+    MAIN_TOPICS.map(function (topic) { return '- ' + topic; }).join('\n'),
+    '',
+    'Set title: ' + (title || '(not given)'),
+    'Legacy subject: ' + (subject || '(not given)'),
+    currentSubTopic ? 'Current subtopic: ' + currentSubTopic : '',
+    subTopics.length ? 'Existing subtopics (reuse one exactly when it fits):\n' + subTopics.map(function (item) {
+      return '- ' + item;
+    }).join('\n') : '',
+    samples.length ? 'Sample questions:\n' + samples.map(function (item, index) {
+      return (index + 1) + '. ' + item;
+    }).join('\n') : '',
+    '',
+    'Return ONLY a JSON object with this exact shape:',
+    '{"mainTopic":"one exact main topic from the list","subTopic":"short grouping label"}',
+    '',
+    'Rules:',
+    '- mainTopic must match one of the listed topics exactly, including spelling and punctuation.',
+    '- subTopic is a short human label, two to six words, in title case. It groups similar sets together.',
+    '- Prefer an existing subtopic when it accurately describes this set.',
+    '- Choose the closest main topic even when the set mixes subjects. Never invent a new main topic.',
+    '- Do not include question numbers, explanations, markdown or extra keys.'
+  ].filter(Boolean).join('\n');
+
+  const text = await runPrompt(config, prompt);
+  return parseTopicReply(text, title, subject);
+}
+
+async function runPrompt(config, prompt) {
+  if (config.id === 'gemini') {
+    const generationConfig = {
+      temperature: 0.1,
+      maxOutputTokens: 500,
+      responseMimeType: 'application/json'
+    };
+    if (config.model.indexOf('2.5-flash') >= 0) {
+      generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    }
+
+    const result = await requestJson(
+      'https://generativelanguage.googleapis.com/v1beta/models/' +
+        encodeURIComponent(config.model) + ':generateContent',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': config.key
+        },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig
+        })
+      },
+      60000,
+      'Gemini'
+    );
+
+    if (!result.response.ok) throw providerError(result.response.status, result.data, 'Gemini');
+    if (result.data && result.data.promptFeedback && result.data.promptFeedback.blockReason) {
+      throw new Error('Gemini blocked this request (' + result.data.promptFeedback.blockReason + '). Try again with a shorter title.');
+    }
+
+    const text = geminiText(result.data);
+    if (!text) {
+      throw new Error('Gemini returned an empty classification. Try again.');
+    }
+    return text;
+  }
+
+  const result = await requestJson(
+    config.endpoint,
+    {
+      method: 'POST',
+      headers: openAIHeaders(config.key),
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.1,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    },
+    60000,
+    config.host || 'the endpoint'
+  );
+
+  if (!result.response.ok) throw providerError(result.response.status, result.data, 'endpoint');
+  const text = openAIText(result.data);
+  if (!text) throw new Error('The endpoint returned an empty classification. Try again.');
+  return text;
+}
+
+function cleanInput(value, maxLength) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength || 200);
+}
+
+function stringList(value, maxItems, maxLength) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  value.forEach(function (item) {
+    const clean = cleanInput(item, maxLength);
+    if (clean && out.indexOf(clean) < 0 && out.length < maxItems) out.push(clean);
+  });
+  return out;
+}
+
+function parseTopicReply(text, title, subject) {
+  let value = String(text || '').trim();
+  value = value.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(value);
+  } catch (err) {
+    const start = value.indexOf('{');
+    const end = value.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try { parsed = JSON.parse(value.slice(start, end + 1)); } catch (err2) { parsed = null; }
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('The AI reply was not valid topic JSON. Try again.');
+  }
+
+  const requested = parsed.mainTopic || parsed.main_topic || parsed.topic || '';
+  const mainTopic = matchMainTopic(requested) || inferMainTopic(title, subject);
+  const subTopic = cleanInput(
+    parsed.subTopic || parsed.sub_topic || parsed.subtopic || title || 'General',
+    120
+  ) || 'General';
+
+  return { mainTopic, subTopic };
+}
+
+function matchMainTopic(value) {
+  const clean = cleanInput(value, 80).toLowerCase();
+  if (!clean) return '';
+  const exact = MAIN_TOPICS.filter(function (topic) {
+    return topic.toLowerCase() === clean;
+  })[0];
+  if (exact) return exact;
+  const partial = MAIN_TOPICS.filter(function (topic) {
+    const lower = topic.toLowerCase();
+    return lower.indexOf(clean) >= 0 || clean.indexOf(lower) >= 0;
+  });
+  return partial.length === 1 ? partial[0] : '';
+}
+
+function inferMainTopic(title, subject) {
+  const text = (String(title || '') + ' ' + String(subject || '')).toLowerCase();
+
+  if (/geograph/.test(text)) {
+    return /kerala/.test(text) ? 'Kerala - World Geography' : 'Indian Geography';
+  }
+  if (/renaissance|world history|kerala history|history of kerala/.test(text)) {
+    return 'Kerala - World History';
+  }
+  if (/indian history|history/.test(text)) return 'Indian History';
+  if (/constitution|polity|civics/.test(text)) return 'Constitution';
+  if (/econom/.test(text)) return 'Economics';
+  if (/english/.test(text)) return 'English';
+  if (/malayalam/.test(text)) return 'Malayalam';
+  if (/math|mental ability|reasoning|aptitude|numerical/.test(text)) {
+    return 'Mathematics & Mental Ability';
+  }
+  if (/computer|information technology|\bict\b|internet|software/.test(text)) {
+    return 'Information Technology';
+  }
+  if (/biology|botany|zoology|public health|medical|nursing|health/.test(text)) {
+    return 'Biology & Public Health';
+  }
+  if (/physics|chemistry|science/.test(text)) return 'Physical Science';
+  if (/governance|administration|kerala/.test(text)) return 'Kerala Governance';
+  return 'Current Affairs';
 }
 
 function validateImages(value) {

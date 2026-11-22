@@ -7,6 +7,8 @@ import com.padanam.psc.AppContainer
 import com.padanam.psc.data.auth.AuthSession
 import com.padanam.psc.data.model.AiScanResult
 import com.padanam.psc.data.model.ScanDestination
+import com.padanam.psc.data.model.TopicSuggestion
+import com.padanam.psc.data.model.Topics
 import com.padanam.psc.data.prefs.AppSettings
 import com.padanam.psc.data.remote.ScanException
 import com.padanam.psc.data.remote.ScanImage
@@ -35,6 +37,8 @@ data class AnalysingState(
     val draft: AiScanResult? = null,
     val destinations: List<ScanDestination> = emptyList(),
     val targetSetId: String? = null,
+    val suggestingTopics: Boolean = false,
+    val topicNotice: String? = null,
     val savedTitle: String = "",
     val appended: Boolean = false
 ) {
@@ -216,6 +220,82 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
         _state.update { it.copy(targetSetId = setId, error = null) }
     }
 
+    /** Edits the topics that will be copied when a new set is saved. */
+    fun updateDraftTopic(mainTopic: String? = null, subTopic: String? = null) {
+        _state.update { state ->
+            val draft = state.draft ?: return@update state
+            state.copy(
+                draft = draft.copy(
+                    mainTopic = mainTopic ?: draft.mainTopic,
+                    subTopic = subTopic ?: draft.subTopic
+                ),
+                topicNotice = null
+            )
+        }
+    }
+
+    /**
+     * Classifies the draft with the server-side provider. The fallback keeps the
+     * form useful when AI is not configured, exactly like the web app.
+     */
+    fun suggestTopics() {
+        val draft = _state.value.draft ?: return
+        if (_state.value.suggestingTopics) return
+        _state.update { it.copy(suggestingTopics = true, topicNotice = null) }
+
+        viewModelScope.launch {
+            val settings = withContext(Dispatchers.IO) { container.settingsRepository.current() }
+            val session = withContext(Dispatchers.IO) { container.authRepository.current() }
+            val existing = withContext(Dispatchers.IO) {
+                runCatching { container.libraryRepository.subTopics() }.getOrDefault(emptyList())
+            }
+            val samples = draft.questions.take(8).map {
+                it.questionEn.ifBlank { it.questionMl }
+            }
+
+            var suggestion: TopicSuggestion? = null
+            var notice: String? = null
+            if (settings.serverUrl.isBlank() || session == null) {
+                notice = "AI is unavailable. Filled a local topic guess."
+            } else {
+                suggestion = runCatching {
+                    container.serverApi.classifyTopic(
+                        baseUrl = settings.serverUrl,
+                        token = session.token,
+                        title = draft.title,
+                        subject = draft.subject,
+                        subTopic = draft.subTopic,
+                        subTopics = existing,
+                        samples = samples
+                    )
+                }.getOrElse { error ->
+                    notice = (error.message?.takeIf { it.isNotBlank() }
+                        ?: "The AI could not classify this set.") +
+                        " Filled a local topic guess."
+                    null
+                }
+                if (suggestion != null) {
+                    val resolved = suggestion
+                    notice = "AI suggested ${resolved.mainTopic} · ${resolved.subTopic}"
+                }
+            }
+
+            val mainTopic = suggestion?.mainTopic
+                ?: Topics.normalize(draft.mainTopic, draft.title, draft.subject)
+            val subTopic = suggestion?.subTopic
+                ?: Topics.subTopic(draft.subTopic, draft.title)
+
+            _state.update { state ->
+                val current = state.draft ?: return@update state
+                state.copy(
+                    draft = current.copy(mainTopic = mainTopic, subTopic = subTopic),
+                    suggestingTopics = false,
+                    topicNotice = notice
+                )
+            }
+        }
+    }
+
     /** Persists the reviewed draft as a new set or appends it to the target. */
     fun saveDraft() {
         val snapshot = _state.value
@@ -341,6 +421,8 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
             draft = null,
             destinations = emptyList(),
             targetSetId = null,
+            suggestingTopics = false,
+            topicNotice = null,
             savedTitle = "",
             appended = false
         )

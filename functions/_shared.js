@@ -144,8 +144,15 @@ export async function ensureSchema(config) {
     },
     {
       query: 'CREATE TABLE IF NOT EXISTS padanam_sets (' +
-        'workspace TEXT NOT NULL, id TEXT NOT NULL, updated_ms BIGINT NOT NULL, ' +
+        'workspace TEXT NOT NULL, id TEXT NOT NULL, main_topic TEXT NOT NULL DEFAULT \'\', ' +
+        'sub_topic TEXT NOT NULL DEFAULT \'\', updated_ms BIGINT NOT NULL, ' +
         'payload JSONB NOT NULL, PRIMARY KEY (workspace, id))'
+    },
+    {
+      query: 'ALTER TABLE padanam_sets ADD COLUMN IF NOT EXISTS main_topic TEXT NOT NULL DEFAULT \'\''
+    },
+    {
+      query: 'ALTER TABLE padanam_sets ADD COLUMN IF NOT EXISTS sub_topic TEXT NOT NULL DEFAULT \'\''
     },
     {
       query: 'CREATE TABLE IF NOT EXISTS padanam_attempts (' +

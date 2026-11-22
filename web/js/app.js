@@ -497,6 +497,91 @@
     return false;
   }
 
+  function allSubTopics(extra) {
+    var values = [];
+    A.state.sets.forEach(function (set) {
+      var value = A.subTopicFor(set);
+      if (value && values.indexOf(value) < 0) values.push(value);
+    });
+    if (extra && values.indexOf(extra) < 0) values.push(extra);
+    return values;
+  }
+
+  function suggestTopics(btn, payload) {
+    var settings = A.state.settings;
+    var original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Thinking…';
+
+    return A.gemini.classify({
+      provider: settings.provider,
+      apiKey: settings.apiKey,
+      model: settings.model,
+      baseUrl: settings.openaiUrl,
+      openaiKey: settings.openaiKey,
+      openaiModel: settings.openaiModel,
+      title: payload.title,
+      subject: payload.subject,
+      subTopic: payload.subTopic,
+      subTopics: allSubTopics(payload.subTopic),
+      samples: payload.samples || []
+    }).then(function (suggestion) {
+      A.toast({
+        title: 'Topic suggested',
+        message: suggestion.mainTopic + ' · ' + suggestion.subTopic + '. Review it before saving.',
+        kind: 'success'
+      });
+      return suggestion;
+    }).catch(function (err) {
+      var fallback = {
+        mainTopic: A.inferMainTopic(payload.title, payload.subject),
+        subTopic: payload.subTopic || payload.title || 'General'
+      };
+      A.toast({
+        title: 'AI suggestion unavailable',
+        message: (err && err.message ? err.message : 'The AI could not answer.') + ' Filled a local guess instead.',
+        kind: 'info'
+      });
+      return fallback;
+    }).then(function (suggestion) {
+      btn.disabled = false;
+      btn.innerHTML = original;
+      return suggestion;
+    });
+  }
+
+  actions['set-suggest-topic'] = function (btn) {
+    if (!requireAdmin()) return;
+    var form = btn.closest('form[data-form="set"]');
+    if (!form) return;
+
+    var setId = trim(field(form, 'setId'));
+    var set = setId ? A.getSet(setId) : null;
+    return suggestTopics(btn, {
+      title: trim(field(form, 'title')),
+      subject: trim(field(form, 'subject')) || 'General Knowledge',
+      subTopic: trim(field(form, 'subTopic')),
+      samples: set ? set.questions.slice(0, 8).map(function (q) { return q.en.stem; }) : []
+    }).then(function (suggestion) {
+      if (!form.isConnected) return;
+      form.elements.mainTopic.value = suggestion.mainTopic;
+      form.elements.subTopic.value = suggestion.subTopic;
+    });
+  };
+
+  actions['scan-suggest-topic'] = function (btn) {
+    if (!requireAdmin()) return;
+    var info = views.scanTopicInfo();
+    return suggestTopics(btn, info).then(function (suggestion) {
+      views.applyScanTopics(suggestion.mainTopic, suggestion.subTopic);
+      var topic = document.getElementById('scanMainTopic');
+      var subTopic = document.getElementById('scanSubTopic');
+      if (topic) topic.value = suggestion.mainTopic;
+      if (subTopic) subTopic.value = suggestion.subTopic;
+      views.updateScanRunner();
+    });
+  };
+
   actions['open-set-form'] = function (btn) {
     if (!requireAdmin()) return;
     views.openSetForm(btn.getAttribute('data-set') || null);
@@ -551,6 +636,7 @@
 
   actions['clear-library-filters'] = function () {
     A.ui.library.q = '';
+    A.ui.library.mainTopic = 'all';
     A.ui.library.subject = 'all';
     A.ui.library.source = 'all';
     A.ui.library.sort = 'recent';
@@ -1196,6 +1282,8 @@
     var title = trim(field(form, 'title'));
     var titleMl = trim(field(form, 'titleMl'));
     var subject = trim(field(form, 'subject')) || 'General Knowledge';
+    var mainTopic = A.normalizeMainTopic(field(form, 'mainTopic'), title, subject);
+    var subTopic = trim(field(form, 'subTopic')) || title;
 
     if (!title) {
       A.toast({ title: 'Add a title', message: 'Give this set a short name so you can find it later.', kind: 'error' });
@@ -1203,7 +1291,7 @@
     }
 
     if (id) {
-      var updated = A.updateSet(id, { title: title, titleMl: titleMl, subject: subject });
+      var updated = A.updateSet(id, { title: title, titleMl: titleMl, subject: subject, mainTopic: mainTopic, subTopic: subTopic });
       if (!updated) {
         A.toast({ title: 'Set not found', message: 'It may have been removed in another tab.', kind: 'error' });
         A.closeModal();
@@ -1221,6 +1309,8 @@
       title: title,
       titleMl: titleMl,
       subject: subject,
+      mainTopic: mainTopic,
+      subTopic: subTopic,
       source: 'manual',
       createdAt: now,
       updatedAt: now,
@@ -1797,6 +1887,7 @@
         A.save();
 
         A.ui.library.q = '';
+        A.ui.library.mainTopic = 'all';
         A.ui.library.subject = 'all';
         A.ui.library.source = 'all';
         A.ui.library.sort = 'recent';
@@ -1901,6 +1992,12 @@
   function onChange(event) {
     var target = event.target;
     if (!target || !target.matches) return;
+
+    if (target.matches('[data-library-topic]')) {
+      A.ui.library.mainTopic = target.value || 'all';
+      refreshLibraryUI();
+      return;
+    }
 
     if (target.matches('[data-library-subject]')) {
       A.ui.library.subject = target.value || 'all';

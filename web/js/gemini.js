@@ -109,6 +109,10 @@
       return testProxy();
     },
 
+    classify: function (opts) {
+      return classifyTopic(opts || {});
+    },
+
     async compressImage(file) {
       if (!file) throw new Error('No image selected.');
       if (file.type && file.type.indexOf('image/') !== 0) {
@@ -555,6 +559,248 @@
     return extraction;
   }
 
+  /* ── Topic classification ────────────────────────────── */
+  function topicPayload(opts) {
+    var title = clean(opts.title).slice(0, 160);
+    var subject = clean(opts.subject).slice(0, 100);
+    var subTopic = clean(opts.subTopic).slice(0, 120);
+    var subTopics = (Array.isArray(opts.subTopics) ? opts.subTopics : [])
+      .map(function (item) { return clean(item).slice(0, 80); })
+      .filter(Boolean)
+      .filter(function (item, index, list) { return list.indexOf(item) === index; })
+      .slice(0, 30);
+    var samples = (Array.isArray(opts.samples) ? opts.samples : [])
+      .map(function (item) { return clean(item).slice(0, 400); })
+      .filter(Boolean)
+      .slice(0, 8);
+
+    if (!title && !subject && !samples.length) {
+      throw new Error('Add a set title or a few questions before asking the AI.');
+    }
+
+    return {
+      title: title,
+      subject: subject,
+      subTopic: subTopic,
+      subTopics: subTopics,
+      samples: samples
+    };
+  }
+
+  function buildTopicPrompt(payload) {
+    return [
+      'You classify question sets for a Kerala PSC study library.',
+      'Choose exactly one main topic from this fixed list:',
+      (A.MAIN_TOPICS || []).map(function (topic) { return '- ' + topic; }).join('\n'),
+      '',
+      'Set title: ' + (payload.title || '(not given)'),
+      'Legacy subject: ' + (payload.subject || '(not given)'),
+      payload.subTopic ? 'Current subtopic: ' + payload.subTopic : '',
+      payload.subTopics.length
+        ? 'Existing subtopics (reuse one exactly when it fits):\n' + payload.subTopics.map(function (item) {
+            return '- ' + item;
+          }).join('\n')
+        : '',
+      payload.samples.length
+        ? 'Sample questions:\n' + payload.samples.map(function (item, index) {
+            return (index + 1) + '. ' + item;
+          }).join('\n')
+        : '',
+      '',
+      'Return ONLY a JSON object with this exact shape:',
+      '{"mainTopic":"one exact main topic from the list","subTopic":"short grouping label"}',
+      '',
+      'Rules:',
+      '- mainTopic must match one of the listed topics exactly, including spelling and punctuation.',
+      '- subTopic is a short human label, two to six words, in title case. It groups similar sets together.',
+      '- Prefer an existing subtopic when it accurately describes this set.',
+      '- Choose the closest main topic even when the set mixes subjects. Never invent a new main topic.',
+      '- Do not include question numbers, explanations, markdown or extra keys.'
+    ].filter(Boolean).join('\n');
+  }
+
+  function parseTopicReply(raw, title, subject) {
+    var parsed;
+    try {
+      parsed = parseJsonLoose(raw);
+    } catch (err) {
+      throw new Error('The AI reply was not valid topic JSON. Try again.');
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('The AI did not return a topic suggestion. Try again.');
+    }
+
+    var requested = parsed.mainTopic || parsed.main_topic || parsed.topic || '';
+    var mainTopic = A.normalizeMainTopic(requested, title, subject);
+    var subTopic = clean(parsed.subTopic || parsed.sub_topic || parsed.subtopic || title || 'General').slice(0, 120);
+
+    return {
+      mainTopic: mainTopic,
+      subTopic: subTopic || 'General'
+    };
+  }
+
+  function classifyError(provider, status, data) {
+    var detail = apiMessage(data);
+    var message;
+    if (status === 400) {
+      message = provider + ' rejected the request. Check the API key and model in Settings.';
+    } else if (status === 401) {
+      message = 'The API key was rejected. Check it in Settings.';
+    } else if (status === 403) {
+      message = 'This key cannot use ' + provider + '. Check the key permissions in Settings.';
+    } else if (status === 404) {
+      message = 'That model was not found. Choose another model in Settings.';
+    } else if (status === 429) {
+      message = provider + ' is rate-limited right now. Wait a moment and try again.';
+    } else if (status >= 500) {
+      message = provider + ' is having trouble right now. Try again in a moment.';
+    } else {
+      message = provider + ' returned an error' + (detail ? ': ' + detail : '.');
+    }
+    var err = new Error(message);
+    err.status = status;
+    err.detail = detail;
+    return err;
+  }
+
+  async function classifyViaProxy(payload) {
+    if (typeof fetch !== 'function') throw new Error('This browser cannot call the Cloudflare proxy.');
+    if (!proxyState.checked) await refreshProxyStatus();
+    if (!proxyState.available) {
+      throw new Error(proxyState.error || 'The Cloudflare proxy is not available on this site.');
+    }
+    if (!proxyState.ready) {
+      throw new Error(proxyState.error || 'The Cloudflare proxy is not configured. Add the provider secrets in Cloudflare Pages.');
+    }
+
+    var controller = new AbortController();
+    var timer = window.setTimeout(function () { controller.abort(); }, 60000);
+    var response, data;
+    try {
+      response = await fetch(PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(Object.assign({ action: 'classify' }, payload)),
+        signal: controller.signal
+      });
+      data = await readJson(response);
+    } catch (err) {
+      if (err && err.name === 'AbortError') throw new Error('The AI did not answer in time. Try again.');
+      throw err;
+    } finally {
+      window.clearTimeout(timer);
+    }
+
+    if (!response.ok || !data || data.ok === false) {
+      throw new Error(String((data && data.error) || ('The Cloudflare proxy returned HTTP ' + response.status + '.')));
+    }
+
+    return {
+      mainTopic: A.normalizeMainTopic(data.mainTopic, payload.title, payload.subject),
+      subTopic: clean(data.subTopic).slice(0, 120) || payload.title || 'General',
+      provider: String(data.provider || proxyState.provider || ''),
+      model: String(data.model || proxyState.model || ''),
+      host: String(data.host || proxyState.host || '')
+    };
+  }
+
+  async function classifyDirect(opts, payload, provider) {
+    var prompt = buildTopicPrompt(payload);
+    var text;
+
+    if (provider === 'gemini') {
+      var apiKey = String(opts.apiKey || '').trim();
+      var model = String(opts.model || 'gemini-2.5-flash').trim();
+      var generationConfig = {
+        temperature: 0.1,
+        maxOutputTokens: 500,
+        responseMimeType: 'application/json'
+      };
+      if (model.indexOf('2.5-flash') >= 0) {
+        generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+
+      var geminiResult = await requestJsonWithTimeout(
+        API_ROOT + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: generationConfig
+          })
+        },
+        60000,
+        'Gemini',
+        'Check your connection or any browser extension that blocks requests.'
+      );
+
+      if (geminiResult.response.status === 429) {
+        throw classifyError('Gemini', 429, geminiResult.data);
+      }
+      if (!geminiResult.response.ok) throw classifyError('Gemini', geminiResult.response.status, geminiResult.data);
+      if (geminiResult.data && geminiResult.data.promptFeedback && geminiResult.data.promptFeedback.blockReason) {
+        throw new Error('Gemini blocked this request (' + geminiResult.data.promptFeedback.blockReason + '). Try again with a shorter title.');
+      }
+
+      text = candidateText(geminiResult.data);
+      if (!text) throw new Error('Gemini returned an empty topic suggestion. Try again.');
+    } else {
+      var endpoint = openAIEndpoint(opts.baseUrl);
+      var openaiModel = String(opts.openaiModel || '').trim();
+      var headers = { 'Content-Type': 'application/json' };
+      var openaiKey = String(opts.openaiKey || '').trim();
+      if (openaiKey) headers.Authorization = 'Bearer ' + openaiKey;
+      var host = endpointHost(endpoint);
+
+      var openaiResult = await requestJsonWithTimeout(
+        endpoint,
+        {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({
+            model: openaiModel,
+            temperature: 0.1,
+            messages: [{ role: 'user', content: prompt }]
+          })
+        },
+        60000,
+        host,
+        'Check the URL and whether the endpoint allows browser (CORS) requests.'
+      );
+
+      if (!openaiResult.response.ok) throw classifyError(host, openaiResult.response.status, openaiResult.data);
+      var choice = openaiResult.data && Array.isArray(openaiResult.data.choices) ? openaiResult.data.choices[0] : null;
+      text = openAIMessageText(choice && choice.message) || (choice && typeof choice.text === 'string' ? choice.text : '');
+      if (!text) throw new Error('The endpoint returned an empty topic suggestion. Try again.');
+    }
+
+    return parseTopicReply(text, payload.title, payload.subject);
+  }
+
+  async function classifyTopic(opts) {
+    opts = opts || {};
+    var provider = opts.provider === 'openai' || opts.provider === 'pages' ? opts.provider : 'gemini';
+    var payload = topicPayload(opts);
+
+    if (provider === 'pages') return classifyViaProxy(payload);
+
+    if (provider === 'openai') {
+      if (String(opts.baseUrl || '').trim() && String(opts.openaiModel || '').trim()) {
+        return classifyDirect(opts, payload, 'openai');
+      }
+      if (!proxyState.checked) await refreshProxyStatus();
+      if (proxyState.available && proxyState.ready) return classifyViaProxy(payload);
+      throw new Error('Add an OpenAI-compatible base URL and model in Settings, or configure the site AI proxy.');
+    }
+
+    if (String(opts.apiKey || '').trim()) return classifyDirect(opts, payload, 'gemini');
+    if (!proxyState.checked) await refreshProxyStatus();
+    if (proxyState.available && proxyState.ready) return classifyViaProxy(payload);
+    throw new Error('Add a Gemini API key in Settings, or configure the site AI proxy.');
+  }
+
   /* ── Live model discovery ───────────────────────────── */
   async function fetchModels(opts) {
     var provider = opts.provider === 'openai'
@@ -976,6 +1222,7 @@
   /* ── Prompt & extraction assembly ────────────────────── */
   function buildPrompt(opts) {
     var subjectList = (Seed.subjects || []).map(function (s) { return s.name; }).join(', ');
+    var topicList = (A.MAIN_TOPICS || []).join('; ');
     var languageRule = opts.language === 'en'
       ? 'Extract only the English version of each question. Set "ml" to null.'
       : 'If the paper prints a Malayalam version, extract it in "ml". Otherwise set "ml" to null. The "en" field is required: if a question exists only in Malayalam, put that text in "en".';
@@ -991,6 +1238,8 @@
       '{',
       '  "title": "paper title, or a short descriptive title",',
       '  "subject": "one of: ' + subjectList + '",',
+      '  "mainTopic": "one fixed main topic from this list: ' + topicList + '",',
+      '  "subTopic": "short grouping label for this set",',
       '  "questions": [',
       '    {',
       '      "en": { "stem": "question text", "options": ["option A", "option B", "option C", "option D"], "explanation": "brief reason the answer is correct" },',
@@ -1005,6 +1254,8 @@
       '- Keep each option as a separate array item. Do not merge options, add labels like "(a)" or "A.", or invent options that are not on the page.',
       '- Options must stay in the same order in "en" and "ml". The same "answer" index applies to both languages.',
       '- ' + languageRule,
+      '- "mainTopic" must exactly match one of the fixed topics above. Never invent a new main topic.',
+      '- "subTopic" is a short label of two to six words in title case. It groups similar sets. Use a cleaner version of the set title when unsure.',
       '- Preserve Malayalam script exactly. Do not transliterate it.',
       '- Ignore page numbers, instructions, advertisements, and answer-key tables outside the questions.',
       '- Clean up spacing and broken line wraps. Do not include HTML.',
@@ -1116,6 +1367,8 @@
     return {
       title: clean(payload.title) || '',
       subject: subject,
+      mainTopic: A.normalizeMainTopic(payload.mainTopic || payload.main_topic, clean(payload.title), subject),
+      subTopic: clean(payload.subTopic || payload.sub_topic) || clean(payload.title) || 'General',
       questions: questions
     };
   }

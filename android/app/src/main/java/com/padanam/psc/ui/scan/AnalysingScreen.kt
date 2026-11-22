@@ -56,6 +56,7 @@ import com.padanam.psc.ui.components.PrimaryButton
 import com.padanam.psc.ui.components.ProgressTrack
 import com.padanam.psc.ui.components.ThinDivider
 import com.padanam.psc.ui.components.TopBar
+import com.padanam.psc.ui.components.TopicEditor
 import com.padanam.psc.ui.theme.AppType
 import com.padanam.psc.ui.theme.Cloud
 import com.padanam.psc.ui.theme.Danger
@@ -187,6 +188,9 @@ fun AnalysingScreen(
                     ReviewPanel(
                         state = state,
                         onSelectTarget = vm::selectTarget,
+                        onDraftMainTopic = { vm.updateDraftTopic(mainTopic = it) },
+                        onDraftSubTopic = { vm.updateDraftTopic(subTopic = it) },
+                        onSuggestTopics = vm::suggestTopics,
                         onSave = vm::saveDraft,
                         onDiscard = { closeScreen() }
                     )
@@ -434,15 +438,22 @@ private fun SavedBanner(
 private fun ReviewPanel(
     state: AnalysingState,
     onSelectTarget: (String?) -> Unit,
+    onDraftMainTopic: (String) -> Unit,
+    onDraftSubTopic: (String) -> Unit,
+    onSuggestTopics: () -> Unit,
     onSave: () -> Unit,
     onDiscard: () -> Unit
 ) {
     val draft = state.draft ?: return
     val draftTitle = draft.title.trim().ifBlank { "Scanned set" }
-    val draftSubject = draft.subject.trim().ifBlank { "General" }
     val questionCount = draft.questions.size
     val target = state.destinations.firstOrNull { it.id == state.targetSetId }
     val saveError = state.error
+    val topicNotice = state.topicNotice
+    val subTopicSuggestions = state.destinations
+        .map { it.subTopic }
+        .distinct()
+        .sortedBy { it.lowercase() }
 
     Column(
         modifier = Modifier
@@ -484,11 +495,46 @@ private fun ReviewPanel(
             if (target == null) {
                 "Check the extracted questions, then save them as a new set."
             } else {
-                "These questions will be added to ${target.title}. Its title, subject and existing questions stay unchanged."
+                "These questions will be added to ${target.title}. Its title, main topic, subtopic and existing questions stay unchanged."
             },
             style = AppType.BodySmall,
             color = InkMuted
         )
+
+        TopicEditor(
+            mainTopic = draft.mainTopic,
+            onMainTopicChange = onDraftMainTopic,
+            subTopic = draft.subTopic,
+            onSubTopicChange = onDraftSubTopic,
+            suggestions = subTopicSuggestions,
+            onSuggest = onSuggestTopics,
+            suggesting = state.suggestingTopics,
+            hint = "These topics are saved with the set. Appending to an existing set keeps that set's topics."
+        )
+
+        if (!topicNotice.isNullOrBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(IndigoWash)
+                    .padding(horizontal = 11.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = Indigo,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(
+                    topicNotice,
+                    style = AppType.BodyTiny,
+                    color = IndigoText
+                )
+            }
+        }
 
         if (!saveError.isNullOrBlank()) {
             Row(
@@ -574,7 +620,7 @@ private fun ReviewPanel(
 
         DestinationRow(
             title = "Create a new set",
-            meta = "$draftTitle · $draftSubject · $questionCount questions",
+            meta = "$draftTitle · ${draft.mainTopic} · $questionCount questions",
             selected = target == null,
             onClick = { onSelectTarget(null) }
         )
@@ -588,7 +634,7 @@ private fun ReviewPanel(
             state.destinations.forEach { destination ->
                 DestinationRow(
                     title = destination.title,
-                    meta = "${destination.subject} · ${destination.questionCount} questions",
+                    meta = "${destination.mainTopic} · ${destination.subTopic} · ${destination.questionCount} questions",
                     selected = target?.id == destination.id,
                     onClick = { onSelectTarget(destination.id) }
                 )
