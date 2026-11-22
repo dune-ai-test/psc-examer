@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.padanam.psc.data.model.Topics
 import com.padanam.psc.ui.theme.AppType
 import com.padanam.psc.ui.theme.Hairline
