@@ -2,8 +2,8 @@
    Padanam web — optional Neon cloud sync
    The Neon connection string stays in Cloudflare Pages
    secrets. The browser keeps only the sync code the owner
-   typed in, and syncs sets, questions, attempts and profile.
-   Photos and AI keys are never sent.
+   typed in, and syncs sets, questions, attempts, deck progress
+   and profile. Photos and AI keys are never sent.
    ========================================================= */
 (function () {
   'use strict';
@@ -321,6 +321,61 @@
     });
   }
 
+  function deckEntry(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    if (!timeOf(value.updatedAt)) return null;
+    var status = value.status === 'known' || value.lastResult === 'gotit'
+      ? 'known'
+      : value.status === 'unseen'
+        ? 'unseen'
+        : 'seen';
+    var seenAt = status === 'unseen'
+      ? ''
+      : timeOf(value.seenAt) ? value.seenAt : value.updatedAt;
+    return {
+      status: status,
+      lastResult: status === 'known' ? 'gotit' : status === 'seen' ? 'again' : '',
+      seenAt: seenAt,
+      updatedAt: value.updatedAt
+    };
+  }
+
+  function deckEntries(value) {
+    var out = {};
+    if (!value) return out;
+    if (Array.isArray(value)) {
+      value.forEach(function (entry) {
+        if (!entry || typeof entry.key !== 'string') return;
+        var clean = deckEntry(entry);
+        if (clean) out[entry.key] = clean;
+      });
+      return out;
+    }
+    if (typeof value !== 'object') return out;
+    Object.keys(value).forEach(function (key) {
+      var clean = deckEntry(value[key]);
+      if (clean) out[key] = clean;
+    });
+    return out;
+  }
+
+  function mergeDeckProgress(localValue, remoteValue) {
+    var out = {};
+    [deckEntries(localValue), deckEntries(remoteValue)].forEach(function (map) {
+      Object.keys(map).forEach(function (key) {
+        var candidate = map[key];
+        var current = out[key];
+        if (!current) {
+          out[key] = candidate;
+          return;
+        }
+        var diff = timeOf(candidate.updatedAt) - timeOf(current.updatedAt);
+        if (diff > 0 || (diff === 0 && candidate.status === 'unseen')) out[key] = candidate;
+      });
+    });
+    return out;
+  }
+
   function merge(local, remote) {
     var localEpoch = Number(local.meta && local.meta.syncEpochMs) || 0;
     var remoteEpoch = Number(remote.epochMs) || 0;
@@ -337,10 +392,12 @@
     var profile = local.profile;
     var profileUpdatedAt = (local.meta && (local.meta.profileUpdatedAt || local.meta.updatedAt)) || new Date().toISOString();
     var attemptsClearedAt = (local.meta && local.meta.attemptsClearedAt) || '';
+    var deckProgress = {};
 
     if (adopt) {
       sets = Array.isArray(remote.sets) ? remote.sets : [];
       attempts = Array.isArray(remote.attempts) ? remote.attempts : [];
+      deckProgress = deckEntries(remote.deckProgress);
       profile = remote.profile || {};
       profileUpdatedAt = remote.profileUpdatedMs
         ? new Date(Number(remote.profileUpdatedMs)).toISOString()
@@ -377,6 +434,7 @@
       (local.attempts || []).forEach(considerAttempt);
       (remote.attempts || []).forEach(considerAttempt);
       attempts = Object.keys(attemptMap).map(function (id) { return attemptMap[id]; });
+      deckProgress = mergeDeckProgress(local.deckProgress, remote.deckProgress);
 
       if (Number(remote.profileUpdatedMs) > timeOf(profileUpdatedAt) && remote.profile) {
         profile = remote.profile;
@@ -402,6 +460,7 @@
       profile: profile,
       sets: sets,
       attempts: attempts,
+      deckProgress: deckProgress,
       meta: meta
     });
 
@@ -418,6 +477,16 @@
     return {
       sets: A.state.sets || [],
       attempts: A.state.attempts || [],
+      deckProgress: Object.keys(A.state.deckProgress || {}).map(function (key) {
+        var entry = A.state.deckProgress[key];
+        return {
+          key: key,
+          status: entry.status,
+          lastResult: entry.lastResult || '',
+          seenAt: entry.seenAt || '',
+          updatedAt: entry.updatedAt
+        };
+      }),
       profile: A.state.profile || {},
       profileUpdatedAt: A.state.meta.profileUpdatedAt || A.state.meta.updatedAt,
       attemptsClearedAt: A.state.meta.attemptsClearedAt || '',
@@ -473,6 +542,7 @@
         return {
           sets: Number(pushed.sets) || 0,
           attempts: Number(pushed.attempts) || 0,
+          deckCards: Number(pushed.deckCards) || 0,
           adopted: merged.adopted
         };
       }
@@ -483,6 +553,7 @@
       state.lastResult = {
         sets: Number(pushed.sets) || A.state.sets.length,
         attempts: Number(pushed.attempts) || A.state.attempts.length,
+        deckCards: Number(pushed.deckCards) || Object.keys(A.state.deckProgress || {}).length,
         adopted: merged.adopted
       };
       state.error = '';

@@ -170,6 +170,11 @@ export async function ensureSchema(config) {
         'PRIMARY KEY (workspace, kind, id))'
     },
     {
+      query: 'CREATE TABLE IF NOT EXISTS padanam_deck_progress (' +
+        'workspace TEXT NOT NULL, card_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT \'seen\', ' +
+        'updated_ms BIGINT NOT NULL, payload JSONB NOT NULL, PRIMARY KEY (workspace, card_key))'
+    },
+    {
       query: 'CREATE INDEX IF NOT EXISTS padanam_attempts_finished_idx ' +
         'ON padanam_attempts (workspace, finished_ms DESC)'
     }

@@ -298,12 +298,15 @@
       sets: [],
       attempts: [],
       activeExam: null,
+      deckProgress: {},
+      deckSession: null,
       meta: {
         seeded: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         profileUpdatedAt: new Date().toISOString(),
         attemptsClearedAt: '',
+        deckGuideSeen: false,
         syncEpochMs: 0,
         lastSyncAt: ''
       }
@@ -379,6 +382,75 @@
       responses: responses,
       flags: questions.map(function (q, index) { return !!flags[index]; }),
       timeLimitSec: mode === 'mock' && timeLimit > 0 ? timeLimit : null
+    };
+  }
+
+  function validDeckKey(key) {
+    return typeof key === 'string' && key.length > 2 && key.length <= 320 &&
+      /^[a-z][a-z0-9_-]*:.+$/.test(key);
+  }
+
+  function normalizeDeckEntry(entry) {
+    if (!entry || typeof entry !== 'object') return null;
+    var status = entry.status === 'known' || entry.lastResult === 'gotit'
+      ? 'known'
+      : entry.status === 'unseen'
+        ? 'unseen'
+        : 'seen';
+    var updatedAt = Date.parse(entry.updatedAt) ? entry.updatedAt : new Date().toISOString();
+    var seenAt = Date.parse(entry.seenAt) ? entry.seenAt : updatedAt;
+    return {
+      status: status,
+      lastResult: status === 'known' ? 'gotit' : status === 'seen' ? 'again' : '',
+      seenAt: status === 'unseen' ? '' : seenAt,
+      updatedAt: updatedAt
+    };
+  }
+
+  function normalizeDeckProgress(value) {
+    var out = {};
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+    Object.keys(value).forEach(function (key) {
+      if (!validDeckKey(key)) return;
+      var entry = normalizeDeckEntry(value[key]);
+      if (entry) out[key] = entry;
+    });
+    return out;
+  }
+
+  function normalizeDeckSession(session) {
+    if (!session || typeof session !== 'object') return null;
+    var mainTopic = String(session.mainTopic || '').trim();
+    if (!mainTopic) return null;
+
+    var keys = [];
+    (Array.isArray(session.keys) ? session.keys : []).forEach(function (key) {
+      if (validDeckKey(key) && keys.indexOf(key) < 0) keys.push(key);
+    });
+    keys = keys.slice(0, 20000);
+    if (!keys.length) return null;
+
+    var actions = [];
+    (Array.isArray(session.actions) ? session.actions : []).forEach(function (action) {
+      if (!action || keys.indexOf(action.key) < 0) return;
+      var at = Date.parse(action.at) ? action.at : new Date().toISOString();
+      actions.push({
+        key: action.key,
+        result: action.result === 'again' ? 'again' : 'gotit',
+        at: at,
+        before: action.before ? normalizeDeckEntry(action.before) : null
+      });
+    });
+
+    return {
+      id: session.id || A.uid('deck'),
+      mainTopic: mainTopic,
+      subTopic: String(session.subTopic || '').trim(),
+      scope: String(session.subTopic || '').trim() ? 'subtopic' : 'topic',
+      keys: keys,
+      actions: actions,
+      round: Math.max(1, parseInt(session.round, 10) || 1),
+      startedAt: Date.parse(session.startedAt) ? session.startedAt : new Date().toISOString()
     };
   }
 
@@ -459,6 +531,8 @@
     }
 
     out.activeExam = normalizeActiveExam(state.activeExam);
+    out.deckProgress = normalizeDeckProgress(state.deckProgress);
+    out.deckSession = normalizeDeckSession(state.deckSession);
     out.meta = base.meta;
     if (state.meta && typeof state.meta === 'object') {
       out.meta.seeded = !!state.meta.seeded;
@@ -470,6 +544,7 @@
       out.meta.attemptsClearedAt = Date.parse(state.meta.attemptsClearedAt)
         ? state.meta.attemptsClearedAt
         : '';
+      out.meta.deckGuideSeen = !!state.meta.deckGuideSeen;
       out.meta.syncEpochMs = Math.max(0, Number(state.meta.syncEpochMs) || 0);
       out.meta.lastSyncAt = Date.parse(state.meta.lastSyncAt) ? state.meta.lastSyncAt : '';
     }

@@ -2,8 +2,8 @@
    Padanam — Neon cloud sync for Cloudflare Pages
    Signed-in accounts sync with a Bearer session. The legacy
    SYNC_TOKEN path stays available for older self-hosted
-   deployments. Sets, questions, attempts and profile sync;
-   photos and AI keys never leave the browser.
+   deployments. Sets, questions, attempts, deck progress and
+   profile sync; photos and AI keys never leave the browser.
    ========================================================= */
 
 import {
@@ -27,6 +27,7 @@ const MIN_TOKEN_LENGTH = 16;
 const MAX_SETS = 1000;
 const MAX_ATTEMPTS = 5000;
 const MAX_TOMBSTONES = 5000;
+const MAX_DECK_CARDS = 20000;
 const MAX_BODY_BYTES = 6 * 1024 * 1024;
 
 export function onRequest(context) {
@@ -162,7 +163,7 @@ async function handleSync(context) {
       }
       await ensureSchema(database);
       const counts = await pushWorkspace(database, workspace, payload);
-      return json({ ok: true, sets: counts.sets, attempts: counts.attempts });
+      return json({ ok: true, sets: counts.sets, attempts: counts.attempts, deckCards: counts.deckCards });
     }
 
     if (action === 'replace') {
@@ -174,7 +175,13 @@ async function handleSync(context) {
       }
       await ensureSchema(database);
       const result = await replaceWorkspace(database, workspace, payload);
-      return json({ ok: true, epochMs: result.epochMs, sets: result.sets, attempts: result.attempts });
+      return json({
+        ok: true,
+        epochMs: result.epochMs,
+        sets: result.sets,
+        attempts: result.attempts,
+        deckCards: result.deckCards
+      });
     }
 
     return json({ error: 'Unknown action.' }, 400);
@@ -207,6 +214,10 @@ async function pullWorkspace(config, workspace) {
     {
       query: 'SELECT kind, id, deleted_ms FROM padanam_tombstones WHERE workspace = $1',
       params: [workspace]
+    },
+    {
+      query: 'SELECT card_key, status, updated_ms, payload FROM padanam_deck_progress WHERE workspace = $1',
+      params: [workspace]
     }
   ]);
 
@@ -220,11 +231,20 @@ async function pullWorkspace(config, workspace) {
       deletedMs: Number(row.deleted_ms || 0)
     };
   });
+  const deckProgress = rows(results[4]).map(function (row) {
+    const payload = payloadValue(row.payload);
+    if (!payload || typeof payload !== 'object') return null;
+    return Object.assign({}, payload, {
+      key: String(row.card_key || payload.key || ''),
+      status: String(row.status || payload.status || 'seen')
+    });
+  }).filter(Boolean);
 
   return {
     ok: true,
     sets: sets,
     attempts: attempts,
+    deckProgress: deckProgress,
     profile: profileRow ? payloadValue(profileRow.profile) : null,
     profileUpdatedMs: profileRow ? Number(profileRow.profile_updated_ms || 0) : 0,
     attemptsClearedMs: profileRow ? Number(profileRow.attempts_cleared_ms || 0) : 0,
@@ -253,6 +273,14 @@ async function pushWorkspace(config, workspace, snapshot) {
       kind: item.kind,
       id: item.id,
       deletedMs: Date.parse(item.deletedAt)
+    };
+  });
+  const deckItems = snapshot.deckProgress.map(function (entry) {
+    return {
+      key: entry.key,
+      status: entry.status,
+      updatedMs: Date.parse(entry.updatedAt),
+      payload: entry
     };
   });
   const profileUpdatedMs = Date.parse(snapshot.profileUpdatedAt) || 0;
@@ -308,6 +336,16 @@ async function pushWorkspace(config, workspace, snapshot) {
       params: [workspace]
     },
     {
+      query: 'INSERT INTO padanam_deck_progress (workspace, card_key, status, updated_ms, payload) ' +
+        'SELECT $1, item->>\'key\', item->>\'status\', (item->>\'updatedMs\')::bigint, item->\'payload\' ' +
+        'FROM jsonb_array_elements($2::jsonb) AS item ' +
+        'ON CONFLICT (workspace, card_key) DO UPDATE SET status = EXCLUDED.status, ' +
+        'updated_ms = EXCLUDED.updated_ms, payload = EXCLUDED.payload ' +
+        'WHERE EXCLUDED.updated_ms > padanam_deck_progress.updated_ms ' +
+        'OR (EXCLUDED.updated_ms = padanam_deck_progress.updated_ms AND EXCLUDED.status = \'unseen\')',
+      params: [workspace, JSON.stringify(deckItems)]
+    },
+    {
       query: 'INSERT INTO padanam_profile (workspace, profile, profile_updated_ms, attempts_cleared_ms, epoch_ms) ' +
         'VALUES ($1, $2::jsonb, $3, $4, 0) ' +
         'ON CONFLICT (workspace) DO UPDATE SET ' +
@@ -324,12 +362,17 @@ async function pushWorkspace(config, workspace, snapshot) {
     {
       query: 'SELECT COUNT(*)::int AS count FROM padanam_attempts WHERE workspace = $1',
       params: [workspace]
+    },
+    {
+      query: 'SELECT COUNT(*)::int AS count FROM padanam_deck_progress WHERE workspace = $1',
+      params: [workspace]
     }
   ]);
 
   return {
-    sets: countOf(results[results.length - 2]),
-    attempts: countOf(results[results.length - 1])
+    sets: countOf(results[results.length - 3]),
+    attempts: countOf(results[results.length - 2]),
+    deckCards: countOf(results[results.length - 1])
   };
 }
 
@@ -349,6 +392,14 @@ async function replaceWorkspace(config, workspace, snapshot) {
       payload: attempt
     };
   });
+  const deckItems = snapshot.deckProgress.map(function (entry) {
+    return {
+      key: entry.key,
+      status: entry.status,
+      updatedMs: Date.parse(entry.updatedAt) || now,
+      payload: entry
+    };
+  });
   const profileUpdatedMs = Date.parse(snapshot.profileUpdatedAt) || now;
   const attemptsClearedMs = Date.parse(snapshot.attemptsClearedAt) || 0;
 
@@ -356,6 +407,7 @@ async function replaceWorkspace(config, workspace, snapshot) {
     { query: 'DELETE FROM padanam_sets WHERE workspace = $1', params: [workspace] },
     { query: 'DELETE FROM padanam_attempts WHERE workspace = $1', params: [workspace] },
     { query: 'DELETE FROM padanam_tombstones WHERE workspace = $1', params: [workspace] },
+    { query: 'DELETE FROM padanam_deck_progress WHERE workspace = $1', params: [workspace] },
     {
       query: 'INSERT INTO padanam_sets (workspace, id, main_topic, sub_topic, updated_ms, payload) ' +
         'SELECT $1, item->>\'id\', ' +
@@ -372,6 +424,12 @@ async function replaceWorkspace(config, workspace, snapshot) {
       params: [workspace, JSON.stringify(attemptItems)]
     },
     {
+      query: 'INSERT INTO padanam_deck_progress (workspace, card_key, status, updated_ms, payload) ' +
+        'SELECT $1, item->>\'key\', item->>\'status\', (item->>\'updatedMs\')::bigint, item->\'payload\' ' +
+        'FROM jsonb_array_elements($2::jsonb) AS item',
+      params: [workspace, JSON.stringify(deckItems)]
+    },
+    {
       query: 'INSERT INTO padanam_profile (workspace, profile, profile_updated_ms, attempts_cleared_ms, epoch_ms) ' +
         'VALUES ($1, $2::jsonb, $3, $4, $5) ' +
         'ON CONFLICT (workspace) DO UPDATE SET profile = EXCLUDED.profile, ' +
@@ -384,7 +442,8 @@ async function replaceWorkspace(config, workspace, snapshot) {
   return {
     epochMs: now,
     sets: setItems.length,
-    attempts: attemptItems.length
+    attempts: attemptItems.length,
+    deckCards: deckItems.length
   };
 }
 
@@ -393,10 +452,18 @@ function validateSnapshot(body) {
   const sets = Array.isArray(body.sets) ? body.sets : [];
   const attempts = Array.isArray(body.attempts) ? body.attempts : [];
   const tombstones = Array.isArray(body.tombstones) ? body.tombstones : [];
+  const deckSource = Array.isArray(body.deckProgress)
+    ? body.deckProgress
+    : body.deckProgress && typeof body.deckProgress === 'object'
+      ? Object.keys(body.deckProgress).map(function (key) {
+        return Object.assign({ key: key }, body.deckProgress[key]);
+      })
+      : [];
 
   if (sets.length > MAX_SETS) throw new Error('Too many sets to sync at once.');
   if (attempts.length > MAX_ATTEMPTS) throw new Error('Too many attempts to sync at once.');
   if (tombstones.length > MAX_TOMBSTONES) throw new Error('Too many deleted items to sync at once.');
+  if (deckSource.length > MAX_DECK_CARDS) throw new Error('Too many deck cards to sync at once.');
 
   const cleanSets = sets.map(function (set) {
     if (!set || typeof set !== 'object' || !set.id) throw new Error('One of the sets is missing an id.');
@@ -420,6 +487,28 @@ function validateSnapshot(body) {
     return { kind: item.kind, id: String(item.id).slice(0, 100), deletedAt: item.deletedAt };
   });
 
+  const cleanDeckProgress = deckSource.map(function (entry) {
+    if (!entry || typeof entry !== 'object') throw new Error('A deck card entry is invalid.');
+    const key = String(entry.key || '').trim();
+    if (key.length < 3 || key.length > 320 || !/^[a-z][a-z0-9_-]*:.+$/.test(key)) {
+      throw new Error('A deck card key is invalid.');
+    }
+    if (!Date.parse(entry.updatedAt)) throw new Error('A deck card has an invalid updated date.');
+    const status = entry.status === 'known' || entry.status === 'unseen'
+      ? entry.status
+      : entry.lastResult === 'gotit' ? 'known' : 'seen';
+    const seenAt = status === 'unseen'
+      ? ''
+      : Date.parse(entry.seenAt) ? entry.seenAt : entry.updatedAt;
+    return {
+      key: key,
+      status: status,
+      lastResult: status === 'known' ? 'gotit' : status === 'seen' ? 'again' : '',
+      seenAt: seenAt,
+      updatedAt: entry.updatedAt
+    };
+  });
+
   const profile = body.profile && typeof body.profile === 'object' && !Array.isArray(body.profile)
     ? body.profile
     : {};
@@ -429,6 +518,7 @@ function validateSnapshot(body) {
   const payload = {
     sets: cleanSets,
     attempts: cleanAttempts,
+    deckProgress: cleanDeckProgress,
     profile: profile,
     profileUpdatedAt: profileUpdatedAt,
     attemptsClearedAt: attemptsClearedAt,

@@ -183,6 +183,308 @@
     A.toast(flash);
   }
 
+  /* ── Swipe decks ─────────────────────────────────────── */
+  function deckMiniStackHTML() {
+    return '<div class="deck-mini-stack" aria-hidden="true">' +
+      '<span class="deck-mini deck-mini--back"></span>' +
+      '<span class="deck-mini deck-mini--mid"></span>' +
+      '<span class="deck-mini deck-mini--front">' +
+        '<span class="deck-mini-tag">Q</span>' +
+        '<span class="deck-mini-line"></span>' +
+        '<span class="deck-mini-line deck-mini-line--short"></span>' +
+        '<span class="deck-mini-answer">A</span>' +
+      '</span>' +
+    '</div>';
+  }
+
+  function deckTopicCardHTML(topic) {
+    return '<a class="deck-topic-card" href="' + e(topic.href) + '">' +
+      '<div class="deck-topic-top">' +
+        '<span class="deck-topic-icon">' + icon('layers') + '</span>' +
+        '<span class="chip">' + A.plural(topic.cards.length, 'card') + '</span>' +
+      '</div>' +
+      '<h3>' + e(topic.name) + '</h3>' +
+      '<p>' + A.plural(topic.subtopics.length, 'subtopic') + ' · ' + topic.learned + ' learned</p>' +
+      '<div class="deck-progress-row">' +
+        '<div class="progress"><span style="width:' + topic.pct + '%"></span></div>' +
+        '<strong>' + topic.pct + '%</strong>' +
+      '</div>' +
+      '<div class="deck-topic-foot">' +
+        '<span>' + (topic.pct === 100 ? 'All cards known' : topic.pct ? 'Keep going' : 'Not started yet') + '</span>' +
+        '<span class="deck-topic-open">' + icon('chevron-right') + '</span>' +
+      '</div>' +
+    '</a>';
+  }
+
+  function deckSegmentsHTML(summary) {
+    return summary.cards.map(function (card) {
+      var result = summary.last[card.key] || '';
+      var current = summary.current && summary.current.key === card.key;
+      return '<span class="deck-segment' +
+        (result === 'gotit' ? ' is-gotit' : '') +
+        (result === 'again' ? ' is-again' : '') +
+        (current ? ' is-current' : '') +
+        '"></span>';
+    }).join('');
+  }
+
+  views.deckLibrary = function () {
+    var deck = A.deck.home();
+    if (!deck.cards) {
+      return pageHead('Swipe decks', 'Deck library',
+        'A calm, one-card-at-a-time way to revise the questions already in your library.',
+        '<a class="btn btn-ghost" href="#/library">' + icon('book') + ' Library</a>') +
+        '<div class="card">' + emptyState('layers', 'No deck cards yet',
+          'Add questions to a set, or restore the demo sets. Every question in your library automatically becomes a deck card.',
+          '<a class="btn btn-primary" href="#/library">' + icon('book') + ' Open library</a>') + '</div>';
+    }
+
+    var cont = deck.continueInfo;
+    var firstTopic = deck.topics.filter(function (topic) {
+      return topic.subtopics.length;
+    })[0];
+    var primary = cont
+      ? '<a class="btn btn-white" href="' + e(cont.href) + '">' + icon('play') + ' Continue deck</a>'
+      : firstTopic
+        ? '<button type="button" class="btn btn-white" data-action="deck-browse-topics">' + icon('layers') + ' Browse topics</button>'
+        : '';
+
+    return pageHead('Swipe decks', 'Deck library',
+      'One question, one answer, one swipe. Decks are rebuilt from the questions already in your library.',
+      '<a class="btn btn-ghost" href="#/library">' + icon('book') + ' Library</a>') +
+
+      '<section class="deck-hero">' +
+        '<div class="deck-hero-copy">' +
+          '<span class="deck-hero-chip">' + icon('layers') + ' Swipe deck</span>' +
+          '<h2>One question.<br>One answer.</h2>' +
+          '<p>Read the prompt, reveal the answer, then swipe right when you have it or left to see it again.</p>' +
+          '<div class="deck-hero-stats">' +
+            '<span><strong>' + deck.cards + '</strong> cards</span>' +
+            '<span><strong>' + deck.topicCount + '</strong> topics</span>' +
+            '<span><strong>' + deck.pct + '%</strong> learned</span>' +
+          '</div>' +
+          '<div class="deck-hero-actions">' + primary +
+            '<a class="btn btn-dark-ghost" href="#/library">' + icon('book') + ' Question library</a>' +
+          '</div>' +
+        '</div>' +
+        '<div class="deck-hero-visual">' + deckMiniStackHTML() +
+          '<span class="deck-hero-count">' + (cont ? cont.remaining + ' left' : deck.learned + ' known') + '</span>' +
+        '</div>' +
+      '</section>' +
+
+      '<div class="section-head" style="margin-top:26px">' +
+        '<div><h2 class="section-title">Main topics</h2>' +
+        '<p class="muted" style="font-size:10.5px;margin-top:2px">Pick a topic, then a subtopic deck.</p></div>' +
+        '<span class="chip">' + deck.topicCount + ' topics</span>' +
+      '</div>' +
+      '<div class="deck-topic-grid">' + deck.topics.map(deckTopicCardHTML).join('') + '</div>' +
+      '<p class="deck-footnote">' + icon('info') +
+        ' Deck cards use the correct option and explanation from each question. Your place in a round stays on this device; learned cards sync with your account.' +
+      '</p>';
+  };
+
+  views.deckTopic = function (mainTopic) {
+    var topic = A.deck.topic(mainTopic);
+    if (!topic) return views.notFound('That deck topic no longer exists. The questions may have moved to another topic.');
+    var active = A.deck.sessionFor(topic.name, '');
+    var activeSummary = active ? A.deck.sessionSummary(active) : null;
+    var allHref = A.deck.hrefFor(topic.name, '');
+    var reviewLabel = activeSummary && !activeSummary.complete
+      ? 'Continue this topic'
+      : 'Review this topic';
+    var reviewAction = activeSummary && !activeSummary.complete
+      ? '<a class="btn btn-primary" href="' + e(allHref) + '">' + icon('play') + ' ' + reviewLabel + ' · ' + activeSummary.pending.length + ' left</a>'
+      : '<button type="button" class="btn btn-primary" data-action="deck-start" data-topic="' + e(topic.name) + '">' + icon('play') + ' ' + reviewLabel + '</button>';
+
+    var tiles = topic.subtopics.map(function (sub, index) {
+      var session = A.deck.sessionFor(topic.name, sub.name);
+      var summary = session ? A.deck.sessionSummary(session) : null;
+      var status = summary && !summary.complete
+        ? '<span class="chip chip--indigo">' + summary.pending.length + ' left</span>'
+        : summary && summary.complete
+          ? '<span class="chip chip--success">Round done</span>'
+          : '<span class="chip">' + sub.pct + '%</span>';
+      return '<a class="deck-subtopic-card" href="' + e(sub.href) + '">' +
+        '<span class="deck-subtopic-num">' + A.pad(index + 1) + '</span>' +
+        '<span class="deck-subtopic-copy">' +
+          '<strong>' + e(sub.name) + '</strong>' +
+          '<small>' + A.plural(sub.cards.length, 'card') + '</small>' +
+        '</span>' +
+        status +
+        '<span class="deck-subtopic-bottom">' +
+          '<span class="progress"><span style="width:' + sub.pct + '%"></span></span>' +
+          '<span class="deck-subtopic-pct">' + sub.pct + '%</span>' +
+        '</span>' +
+      '</a>';
+    }).join('');
+
+    return pageHead('Deck topic', topic.name,
+      A.plural(topic.subtopics.length, 'subtopic') + ' · ' + A.plural(topic.cards.length, 'card') + ' · ' + topic.pct + '% learned',
+      '<a class="btn btn-ghost" href="#/decks">' + icon('layers') + ' All decks</a>',
+      { href: '#/decks', label: 'Deck library' }) +
+
+      '<section class="deck-topic-hero">' +
+        '<div class="deck-topic-hero-main">' +
+          '<span class="deck-hero-chip">' + icon('layers') + ' ' + topic.learned + ' of ' + topic.cards.length + ' learned</span>' +
+          '<h2>' + e(topic.name) + '</h2>' +
+          '<p>Choose a subtopic below, or review the whole topic as one longer deck.</p>' +
+          '<div class="progress progress--dark deck-topic-progress"><span style="width:' + topic.pct + '%"></span></div>' +
+        '</div>' +
+        '<div class="deck-topic-hero-actions">' +
+          reviewAction +
+          (topic.subtopics[0]
+            ? '<button type="button" class="btn btn-dark-ghost" data-action="deck-start" data-topic="' + e(topic.name) + '" data-subtopic="' + e(topic.subtopics[0].name) + '">' +
+                icon('book') + ' Start with ' + e(topic.subtopics[0].name) + '</button>'
+            : '') +
+        '</div>' +
+      '</section>' +
+
+      '<div class="section-head" style="margin-top:26px">' +
+        '<div><h2 class="section-title">Subtopics</h2>' +
+        '<p class="muted" style="font-size:10.5px;margin-top:2px">Questions from sets that share this main topic and subtopic are merged into one deck.</p></div>' +
+        '<span class="chip">' + A.plural(topic.cards.length, 'card') + '</span>' +
+      '</div>' +
+      '<div class="deck-subtopic-grid">' + tiles + '</div>' +
+
+      '<div class="deck-topic-review">' +
+        '<div><strong>Ready for the whole topic?</strong><p>' + A.plural(topic.cards.length, 'card') + ' · about ' + Math.max(1, Math.round(topic.cards.length * 10 / 60)) + ' min</p></div>' +
+        reviewAction +
+      '</div>';
+  };
+
+  views.deckStudy = function (mainTopic, subTopic) {
+    var session = A.deck.ensureSession(mainTopic, subTopic);
+    if (!session) return views.notFound('That deck has no cards yet. Add questions to a set with this topic first.');
+    var summary = A.deck.sessionSummary(session);
+    var backHref = A.deck.topicHref(session.mainTopic);
+    var title = session.subTopic || session.mainTopic;
+    var roundLabel = 'Round ' + A.pad(session.round);
+
+    var topbar = '<header class="deck-run-top">' +
+      '<a class="deck-icon-btn" href="' + e(backHref) + '" aria-label="Close deck">' + icon('close') + '</a>' +
+      '<div class="deck-run-counter">' +
+        '<strong>' + A.pad(summary.complete ? summary.total : summary.position) + '</strong>' +
+        '<span>/ ' + A.pad(summary.total) + '</span>' +
+      '</div>' +
+      '<div class="deck-run-tools">' +
+        (summary.sorted ? '<button type="button" class="deck-icon-btn" data-action="deck-undo" aria-label="Undo last swipe">' + icon('undo') + '</button>' : '') +
+        '<button type="button" class="deck-icon-btn" data-action="deck-guide" aria-label="How to swipe">' + icon('info') + '</button>' +
+      '</div>' +
+    '</header>' +
+    '<div class="deck-run-kicker">' +
+      '<span class="mono">Swipe deck · ' + e(title) + '</span>' +
+      '<span class="chip chip--plain">' + e(roundLabel) + '</span>' +
+    '</div>' +
+    '<div class="deck-segments" aria-hidden="true">' + deckSegmentsHTML(summary) + '</div>';
+
+    if (summary.complete) {
+      var recall = summary.recall;
+      var missedLabel = A.plural(summary.missed.length, 'card');
+      return '<div class="deck-run deck-run--complete">' + topbar +
+        '<section class="deck-complete">' +
+          '<div class="deck-complete-fan">' +
+            '<span class="deck-complete-mini deck-complete-mini--left"></span>' +
+            '<span class="deck-complete-mini deck-complete-mini--right"></span>' +
+            '<div class="deck-score-ring" style="--pct:' + recall + '">' +
+              '<div class="deck-score-inner"><strong>' + recall + '%</strong><small>recall</small></div>' +
+            '</div>' +
+          '</div>' +
+          '<p class="eyebrow"><span class="eyebrow-dot"></span>Round complete · ' + e(title) + '</p>' +
+          '<h1>Deck sorted!</h1>' +
+          '<p class="deck-complete-sub">You cleared ' + summary.total + ' ' + (summary.total === 1 ? 'prompt' : 'prompts') + ' — ' +
+            summary.gotit + ' got it' + (summary.again ? ', ' + summary.again + ' marked again' : '') + '.</p>' +
+          '<div class="deck-complete-stats">' +
+            '<div><strong>' + summary.gotit + '</strong><span>Got it</span></div>' +
+            '<div><strong>' + summary.again + '</strong><span>Again</span></div>' +
+            '<div><strong>' + recall + '%</strong><span>Recall</span></div>' +
+          '</div>' +
+          '<div class="deck-complete-streak">' +
+            '<span class="deck-complete-flame">' + icon('flame') + '</span>' +
+            '<span><strong>' + (A.streak() ? A.streak() + '-day streak' : 'A fresh round') + '</strong><small>' +
+              (summary.missed.length ? 'Review the missed cards to lock them in.' : 'Every card in this round is known. Nicely done.') +
+            '</small></span>' +
+          '</div>' +
+          '<div class="deck-complete-actions">' +
+            (summary.missed.length
+              ? '<button type="button" class="btn btn-primary btn-block" data-action="deck-review-missed">' + icon('refresh') + ' Review the ' + missedLabel + ' you missed</button>'
+              : '<span class="chip chip--success deck-perfect">' + icon('check-circle') + ' Perfect recall</span>') +
+            '<button type="button" class="btn btn-ghost btn-block" data-action="deck-shuffle">' + icon('shuffle') + ' Shuffle and go again</button>' +
+            '<a class="btn btn-subtle btn-block" href="' + e(backHref) + '">' + icon('chevron-left') + ' Back to ' + e(session.mainTopic) + '</a>' +
+          '</div>' +
+        '</section>' +
+      '</div>';
+    }
+
+    var card = summary.current;
+    var revealed = A.deck.isRevealed(card);
+    var langClass = card.lang === 'ml' ? ' ml' : '';
+    var langAttr = card.lang === 'ml' ? ' lang="ml"' : '';
+    var cardCount = 'Card ' + A.pad(summary.position) + ' / ' + A.pad(summary.total);
+
+    return '<div class="deck-run">' + topbar +
+      '<section class="deck-stage">' +
+        '<div class="deck-back-card deck-back-card--two"></div>' +
+        '<div class="deck-back-card deck-back-card--one"></div>' +
+        '<div class="deck-card" data-deck-card tabindex="0" role="button" aria-pressed="' + (revealed ? 'true' : 'false') + '" aria-label="' +
+          (revealed ? 'Hide the answer' : 'Reveal the answer') + '">' +
+          '<div class="deck-card-cover">' +
+            '<div class="deck-cover-top">' +
+              '<span class="deck-cover-topic">' + e(card.subTopic) + '</span>' +
+              '<span class="deck-cover-meta">' + cardCount + '</span>' +
+            '</div>' +
+            '<div class="deck-cover-bottom">' +
+              '<div>' +
+                '<span class="deck-cover-label">PROMPT</span>' +
+                '<strong class="deck-cover-number">' + A.pad(summary.position) + '</strong>' +
+              '</div>' +
+              '<span class="deck-cover-chip">' + icon('layers') + ' Deck</span>' +
+            '</div>' +
+          '</div>' +
+          '<div class="deck-card-body">' +
+            '<div class="deck-question-head">' +
+              '<span class="mono">Question ' + A.pad(summary.position) + '</span>' +
+              '<span class="deck-reveal-label">' + (revealed ? 'Tap to hide' : 'Tap to reveal') + '</span>' +
+            '</div>' +
+            '<p class="deck-question' + langClass + '"' + langAttr + '>' + A.text(card.stem) + '</p>' +
+            '<div class="deck-answer' + (revealed ? ' is-revealed' : '') + '">' +
+              '<div class="deck-answer-head">' +
+                '<span class="deck-answer-label">' + icon('eye') + ' Answer</span>' +
+                '<span class="chip ' + (revealed ? 'chip--success' : 'chip--plain') + '">' + (revealed ? 'Revealed' : 'Hidden') + '</span>' +
+              '</div>' +
+              (revealed
+                ? '<p class="deck-answer-text' + langClass + '"' + langAttr + '>' + A.text(card.answer) + '</p>' +
+                  (card.explanation ? '<div class="deck-why"><strong>Why</strong><span' + langAttr + '>' + A.text(card.explanation) + '</span></div>' : '')
+                : '<div class="deck-answer-skeleton"><span></span><span></span></div>' +
+                  '<p class="deck-answer-hint">Tap the card to check yourself before sorting it.</p>') +
+            '</div>' +
+            '<p class="deck-card-hint">' + icon(revealed ? 'eye' : 'eye') + ' ' +
+              (revealed ? 'Tap the card to hide the answer' : 'Tap the card to see the answer') + '</p>' +
+          '</div>' +
+          '<span class="deck-stamp deck-stamp--again">Again</span>' +
+          '<span class="deck-stamp deck-stamp--gotit">Got it</span>' +
+        '</div>' +
+      '</section>' +
+      '<div class="deck-controls">' +
+        '<div class="deck-swipe-labels" aria-hidden="true">' +
+          '<span class="deck-swipe-label deck-swipe-label--again">' + icon('arrow-left') + ' Again</span>' +
+          '<span class="deck-swipe-center">Swipe or tap</span>' +
+          '<span class="deck-swipe-label deck-swipe-label--gotit">Got it ' + icon('arrow-right') + '</span>' +
+        '</div>' +
+        '<div class="deck-actions">' +
+          '<button type="button" class="deck-action deck-action--again" data-action="deck-again">' +
+            icon('arrow-left') + '<span>Again</span>' +
+          '</button>' +
+          '<button type="button" class="deck-action deck-action--reveal" data-action="deck-reveal">' +
+            icon('eye') + '<span>' + (revealed ? 'Hide' : 'Reveal') + '</span>' +
+          '</button>' +
+          '<button type="button" class="deck-action deck-action--gotit" data-action="deck-gotit">' +
+            icon('check') + '<span>Got it</span>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  };
+
   /* ── Home ────────────────────────────────────────────── */
   views.home = function () {
     var profile = A.state.profile;
@@ -197,6 +499,7 @@
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     }).slice(0, 4);
     var recentAttempts = A.state.attempts.slice(0, 4);
+    var deckHome = A.deck ? A.deck.home() : null;
     var first = firstName();
     var greeting = A.greeting() + (first ? ', ' + e(first) : '') + '.';
     var dateLabel = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -318,10 +621,49 @@
       ? '<div class="attempt-list">' + recentAttempts.map(attemptRowHTML).join('') + '</div>'
       : '<p class="muted" style="font-size:11.5px;line-height:1.6">Your first completed test will appear here. Attempts are saved in this browser.</p>';
 
+    var deckHomeBlock = '';
+    if (deckHome && deckHome.cards) {
+      var deckCont = deckHome.continueInfo;
+      var deckHref = deckCont ? deckCont.href : '#/decks';
+      var deckSecondary = deckCont
+        ? '<a class="btn btn-dark-ghost" href="#/decks">' + icon('grid') + ' All decks</a>'
+        : '<a class="btn btn-dark-ghost" href="#/library">' + icon('book') + ' Question library</a>';
+      deckHomeBlock = '<section class="deck-home-card">' +
+        '<div class="deck-home-copy">' +
+          '<span class="deck-home-kicker">' + icon('layers') + ' Swipe deck</span>' +
+          '<h2>One question. One answer.</h2>' +
+          '<p>' + (deckCont
+            ? deckCont.sorted
+              ? 'You are ' + deckCont.sorted + ' of ' + deckCont.total + ' cards through ' + e(deckCont.title) + '. Pick up where you left off.'
+              : 'A fresh ' + deckCont.total + '-card round in ' + e(deckCont.title) + ' is ready when you are.'
+            : 'Read the prompt, reveal the answer, then sort the card. ' + deckHome.cards + ' cards are ready from your library.') + '</p>' +
+          '<div class="deck-home-stats">' +
+            '<span><strong>' + deckHome.cards + '</strong> cards</span>' +
+            '<span><strong>' + deckHome.topicCount + '</strong> topics</span>' +
+            '<span><strong>' + deckHome.pct + '%</strong> learned</span>' +
+          '</div>' +
+          '<div class="deck-home-actions">' +
+            '<a class="btn btn-white" href="' + e(deckHref) + '">' + icon(deckCont ? 'play' : 'layers') + ' ' +
+              (deckCont
+                ? deckCont.sorted
+                  ? 'Continue · ' + deckCont.remaining + ' left'
+                  : 'Start · ' + deckCont.remaining + ' cards'
+                : 'Browse topics') + '</a>' +
+            deckSecondary +
+          '</div>' +
+        '</div>' +
+        '<div class="deck-home-visual">' + deckMiniStackHTML() +
+          '<span class="deck-home-badge">' + deckHome.learned + ' known</span>' +
+        '</div>' +
+      '</section>';
+    }
+
     return pageHead(dateLabel + ' · ' + (profile.target || 'Kerala PSC'), greeting,
       'A quiet desk for ' + e(profile.target || 'Kerala PSC') + ' prep — practise, review and keep the streak alive.',
       (admin ? '<a class="btn btn-ghost" href="#/scan">' + icon('scan') + ' Scan</a>' : '') +
       '<a class="btn btn-primary" href="#/library">' + icon('book') + ' Library</a>') +
+
+      deckHomeBlock +
 
       '<div class="home-hero">' +
         '<section class="dark-card goal-card">' +
@@ -436,9 +778,11 @@
         ? 'Every paper you scan or type lives here. Search by title, main topic, subtopic or subject.'
         : 'The sets assigned to your account live here. Search by title, main topic, subtopic or subject.',
       (admin
-        ? '<a class="btn btn-ghost" href="#/scan">' + icon('scan') + ' Scan paper</a>' +
+        ? '<a class="btn btn-ghost" href="#/decks">' + icon('layers') + ' Decks</a>' +
+          '<a class="btn btn-ghost" href="#/scan">' + icon('scan') + ' Scan paper</a>' +
           '<button type="button" class="btn btn-primary" data-action="open-set-form">' + icon('plus') + ' New set</button>'
-        : '<span class="chip chip--indigo">' + icon('lock') + ' Assigned by admin</span>')) +
+        : '<a class="btn btn-ghost" href="#/decks">' + icon('layers') + ' Decks</a>' +
+          '<span class="chip chip--indigo">' + icon('lock') + ' Assigned by admin</span>')) +
 
       '<div class="library-tools">' +
         '<label class="search-box">' +
@@ -597,7 +941,8 @@
 
     var startActions = set.questions.length
       ? '<a class="btn btn-primary btn-block" href="#/exam/setup/' + e(set.id) + '">' + icon('play') + ' Start a mock test</a>' +
-        '<a class="btn btn-ghost btn-block" href="#/exam/setup/' + e(set.id) + '?mode=practice">' + icon('book') + ' Practice without a timer</a>'
+        '<a class="btn btn-ghost btn-block" href="#/exam/setup/' + e(set.id) + '?mode=practice">' + icon('book') + ' Practice without a timer</a>' +
+        (A.deck ? '<a class="btn btn-soft btn-block" href="' + e(A.deck.hrefFor(A.mainTopicFor(set), A.subTopicFor(set))) + '">' + icon('layers') + ' Study as a swipe deck</a>' : '')
       : admin
         ? '<button type="button" class="btn btn-primary btn-block" data-action="add-question" data-set="' + e(set.id) + '">' + icon('plus') + ' Add the first question</button>'
         : '<p class="muted" style="font-size:11px">Questions will appear once the administrator finishes this set.</p>';
@@ -627,7 +972,8 @@
           '<div class="set-hero-actions">' +
             (set.questions.length
               ? '<a class="btn btn-primary" href="#/exam/setup/' + e(set.id) + '">' + icon('play') + ' Mock test</a>' +
-                '<a class="btn btn-ghost" href="#/exam/setup/' + e(set.id) + '?mode=practice">' + icon('book') + ' Practice</a>'
+                '<a class="btn btn-ghost" href="#/exam/setup/' + e(set.id) + '?mode=practice">' + icon('book') + ' Practice</a>' +
+                (A.deck ? '<a class="btn btn-ghost" href="' + e(A.deck.hrefFor(A.mainTopicFor(set), A.subTopicFor(set))) + '">' + icon('layers') + ' Deck</a>' : '')
               : '') +
             (admin ? '<button type="button" class="btn btn-ghost" data-action="add-question" data-set="' + e(set.id) + '">' + icon('plus') + ' Question</button>' : '') +
           '</div>' +
@@ -1358,6 +1704,10 @@
   };
 
   views.mount = function (route) {
+    if (route === 'deckSession') {
+      if (A.deck && typeof A.deck.mount === 'function') A.deck.mount();
+      return;
+    }
     if (route !== 'scan') return;
     var zone = document.getElementById('scanDrop');
     if (!zone) return;
@@ -2251,7 +2601,8 @@
       if (syncInfo.lastSyncAt) syncStatus += ' Last synced ' + A.fmtRelative(syncInfo.lastSyncAt) + '.';
       if (syncInfo.lastResult) {
         syncStatus += ' Cloud has ' + A.plural(syncInfo.lastResult.sets, 'set') +
-          ' and ' + A.plural(syncInfo.lastResult.attempts, 'attempt') + '.';
+          ', ' + A.plural(syncInfo.lastResult.attempts, 'attempt') +
+          ' and ' + A.plural(Number(syncInfo.lastResult.deckCards) || 0, 'deck card') + '.';
       }
     } else if (!syncConfig.token) {
       syncStatus = 'Ready on ' + (syncInfo.host || 'Neon') + '. Enter the sync code you set in Cloudflare Pages.';
@@ -2260,7 +2611,8 @@
       if (syncInfo.lastSyncAt) syncStatus += ' Last synced ' + A.fmtRelative(syncInfo.lastSyncAt) + '.';
       if (syncInfo.lastResult) {
         syncStatus += ' Cloud has ' + A.plural(syncInfo.lastResult.sets, 'set') +
-          ' and ' + A.plural(syncInfo.lastResult.attempts, 'attempt') + '.';
+          ', ' + A.plural(syncInfo.lastResult.attempts, 'attempt') +
+          ' and ' + A.plural(Number(syncInfo.lastResult.deckCards) || 0, 'deck card') + '.';
       }
     }
 

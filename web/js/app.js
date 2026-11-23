@@ -61,6 +61,19 @@
       return { name: parts[0], params: params, query: query };
     }
 
+    if (parts[0] === 'decks') {
+      if (parts.length === 1) return { name: 'decks', params: params, query: query };
+      if (parts[1] === 'topic' && parts[2]) {
+        params.topic = parts[2];
+        return { name: 'deckTopic', params: params, query: query };
+      }
+      if (parts[1] === 'study' && parts[2]) {
+        params.topic = parts[2];
+        if (parts[3]) params.subtopic = parts[3];
+        return { name: 'deckSession', params: params, query: query };
+      }
+    }
+
     if (parts[0] === 'set' && parts[1]) {
       params.id = parts[1];
       return { name: 'set', params: params, query: query };
@@ -108,6 +121,27 @@
           nav: 'library',
           html: views.library(),
           title: 'Library — Padanam'
+        };
+      case 'decks':
+        return {
+          name: 'decks',
+          nav: 'decks',
+          html: views.deckLibrary(),
+          title: 'Deck library — Padanam'
+        };
+      case 'deckTopic':
+        return {
+          name: 'deckTopic',
+          nav: 'decks',
+          html: views.deckTopic(route.params.topic),
+          title: (route.params.topic || 'Deck') + ' — Padanam'
+        };
+      case 'deckSession':
+        return {
+          name: 'deckSession',
+          nav: 'decks',
+          html: views.deckStudy(route.params.topic, route.params.subtopic),
+          title: 'Swipe deck — Padanam'
         };
       case 'set':
         return {
@@ -287,6 +321,7 @@
 
     var focusedExam = view.name === 'exam' && !!A.state.activeExam;
     document.body.classList.toggle('is-exam', focusedExam);
+    document.body.classList.toggle('is-deck', view.name === 'deckSession');
     document.body.classList.toggle('is-auth', view.name === 'login' || view.name === 'setup');
     document.body.classList.toggle('is-admin', isAdmin());
     if (view.name !== 'exam') examFinishing = false;
@@ -648,6 +683,94 @@
   actions['set-lang'] = function (btn) {
     A.ui.setLang = btn.getAttribute('data-value') === 'ml' ? 'ml' : 'en';
     render({ preserveScroll: true });
+  };
+
+  actions['deck-start'] = function (btn) {
+    if (!A.deck) return;
+    var topic = btn.getAttribute('data-topic');
+    var subTopic = btn.getAttribute('data-subtopic') || '';
+    if (!topic) return;
+
+    var existing = A.deck.sessionFor(topic, subTopic);
+    if (existing && !btn.hasAttribute('data-new') && !A.deck.sessionSummary(existing).complete) {
+      A.go(A.deck.hrefFor(topic, subTopic));
+      return;
+    }
+
+    var session = A.deck.start(topic, subTopic, {
+      shuffle: btn.hasAttribute('data-shuffle')
+    });
+    if (!session) {
+      A.toast({ title: 'No cards yet', message: 'Add questions to a set with this topic first.', kind: 'info' });
+      return;
+    }
+    A.go(A.deck.hrefFor(topic, subTopic));
+  };
+
+  actions['deck-reveal'] = function () {
+    if (!A.deck) return;
+    A.deck.reveal();
+    A.refresh();
+  };
+
+  actions['deck-again'] = function () {
+    if (!A.deck) return;
+    A.deck.sort('again');
+    A.refresh();
+  };
+
+  actions['deck-gotit'] = function () {
+    if (!A.deck) return;
+    A.deck.sort('gotit');
+    A.refresh();
+  };
+
+  actions['deck-undo'] = function () {
+    if (!A.deck) return;
+    if (!A.deck.undo()) {
+      A.toast({ title: 'Nothing to undo', message: 'Sort a card first, then undo if you change your mind.', kind: 'info' });
+      return;
+    }
+    A.refresh();
+  };
+
+  actions['deck-review-missed'] = function () {
+    if (!A.deck) return;
+    var session = A.deck.current();
+    if (!session) return;
+    var summary = A.deck.sessionSummary(session);
+    if (!summary || !summary.missed.length) {
+      A.toast({ title: 'No missed cards', message: 'This round is already fully known.', kind: 'info' });
+      return;
+    }
+    A.deck.start(session.mainTopic, session.subTopic, {
+      keys: summary.missed,
+      round: session.round + 1
+    });
+    A.refresh();
+  };
+
+  actions['deck-shuffle'] = function () {
+    if (!A.deck) return;
+    var session = A.deck.current();
+    if (!session) {
+      A.go('#/decks');
+      return;
+    }
+    A.deck.start(session.mainTopic, session.subTopic, {
+      shuffle: true,
+      round: session.round + 1
+    });
+    A.refresh();
+  };
+
+  actions['deck-guide'] = function () {
+    if (A.deck) A.deck.showGuide();
+  };
+
+  actions['deck-browse-topics'] = function () {
+    var grid = document.querySelector('.deck-topic-grid');
+    if (grid && grid.scrollIntoView) grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   actions['setup-choice'] = function (btn) {
@@ -2044,9 +2167,56 @@
     }
   }
 
+  function onDeckKey(event) {
+    if (document.body.classList.contains('modal-open')) return;
+    var target = event.target;
+    var tag = target && target.tagName ? target.tagName : '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (target && target.isContentEditable)) return;
+    if (!A.deck) return;
+
+    var summary = A.deck.summary();
+    var key = event.key;
+
+    if (key === 'Escape') {
+      event.preventDefault();
+      A.go(A.deck.topicHref(current.params.topic));
+      return;
+    }
+    if (!summary || summary.complete) return;
+
+    if (key === 'ArrowLeft' || key === 'a' || key === 'A') {
+      event.preventDefault();
+      A.deck.sort('again');
+      A.refresh();
+      return;
+    }
+    if (key === 'ArrowRight' || key === 'd' || key === 'D') {
+      event.preventDefault();
+      A.deck.sort('gotit');
+      A.refresh();
+      return;
+    }
+    if (key === 'u' || key === 'U') {
+      event.preventDefault();
+      if (A.deck.undo()) A.refresh();
+      return;
+    }
+    if (key === ' ' || key === 'Enter') {
+      if (target && target.closest && target.closest('button, a, summary')) return;
+      event.preventDefault();
+      A.deck.reveal();
+      A.refresh();
+    }
+  }
+
   function onKeydown(event) {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
-    if (!current || current.name !== 'exam') return;
+    if (!current) return;
+    if (current.name === 'deckSession') {
+      onDeckKey(event);
+      return;
+    }
+    if (current.name !== 'exam') return;
     if (document.body.classList.contains('modal-open')) return;
 
     var target = event.target;
