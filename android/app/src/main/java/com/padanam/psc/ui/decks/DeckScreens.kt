@@ -1045,18 +1045,20 @@ private fun ColumnScope.Completion(
     ) {
         Spacer(Modifier.height(10.dp))
 
+        val trackColor = Track
+        val recallColor = if (summary.recall >= 70) Success else Indigo
         Box(modifier = Modifier.size(150.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
                 val stroke = 12.dp.toPx()
                 drawArc(
-                    color = Track,
+                    color = trackColor,
                     startAngle = -90f,
                     sweepAngle = 360f,
                     useCenter = false,
                     style = Stroke(width = stroke)
                 )
                 drawArc(
-                    color = if (summary.recall >= 70) Success else Indigo,
+                    color = recallColor,
                     startAngle = -90f,
                     sweepAngle = 360f * (summary.recall / 100f),
                     useCenter = false,
