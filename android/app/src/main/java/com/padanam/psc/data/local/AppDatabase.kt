@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [SetEntity::class, QuestionEntity::class, AttemptEntity::class],
-    version = 4,
+    entities = [SetEntity::class, QuestionEntity::class, AttemptEntity::class, DeckProgressEntity::class],
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -46,6 +46,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Learnt-card state for the one-question swipe decks. Existing attempts
+         * and exam progress are untouched; every card starts unseen.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `deck_progress` (" +
+                        "`cardKey` TEXT NOT NULL, `status` TEXT NOT NULL, " +
+                        "`lastResult` TEXT NOT NULL, `seenAt` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, `synced` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`cardKey`))"
+                )
+            }
+        }
+
         @Volatile
         private var instance: AppDatabase? = null
 
@@ -56,7 +72,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
 

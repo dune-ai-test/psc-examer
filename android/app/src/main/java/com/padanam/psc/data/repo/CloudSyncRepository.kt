@@ -2,6 +2,8 @@ package com.padanam.psc.data.repo
 
 import com.padanam.psc.data.auth.AuthSession
 import com.padanam.psc.data.local.AppDao
+import com.padanam.psc.data.local.DeckProgressEntity
+import com.padanam.psc.data.model.DeckStatus
 import com.padanam.psc.data.model.SyncOutcome
 import com.padanam.psc.data.prefs.AppSettings
 import com.padanam.psc.data.prefs.SettingsRepository
@@ -10,6 +12,7 @@ import com.padanam.psc.data.remote.ServerApi
 import com.padanam.psc.data.remote.ServerException
 import com.padanam.psc.data.remote.jsonDate
 import com.padanam.psc.data.remote.string
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -49,6 +52,7 @@ class CloudSyncRepository(
             val sets = dao.setsOnce()
             val questionsBySet = dao.allQuestionsOnce().groupBy { it.setId }
             val attempts = dao.allAttemptsOnce()
+            val deckProgress = dao.deckProgressOnce()
             val pushProfileAt = current.profileUpdatedAt.takeIf { it > 0L }
                 ?: System.currentTimeMillis().also { stamp ->
                     settingsRepository.applyRemoteProfile(
@@ -73,6 +77,11 @@ class CloudSyncRepository(
                         add(WebBackup.attemptToJson(attempt, current.language))
                     }
                 })
+                put("deckProgress", buildJsonArray {
+                    deckProgress.forEach { entry ->
+                        add(WebBackup.deckProgressToJson(entry))
+                    }
+                })
                 put("profile", buildJsonObject {
                     put("name", current.name)
                     put("target", current.target)
@@ -90,6 +99,7 @@ class CloudSyncRepository(
             dao.markAllSetsSynced()
             dao.markAllQuestionsSynced()
             dao.markAllAttemptsSynced()
+            dao.markAllDeckProgressSynced()
             val message = buildString {
                 append("Synced ")
                 append(sets.size)
@@ -97,6 +107,9 @@ class CloudSyncRepository(
                 append(" · ")
                 append(attempts.size)
                 append(if (attempts.size == 1) " attempt" else " attempts")
+                append(" · ")
+                append(deckProgress.size)
+                append(if (deckProgress.size == 1) " deck card" else " deck cards")
                 if (pulled > 0) {
                     append(" · pulled ")
                     append(pulled)
@@ -106,7 +119,7 @@ class CloudSyncRepository(
             SyncOutcome(
                 ok = true,
                 message = message,
-                pushed = pushed.sets + pushed.attempts,
+                pushed = pushed.sets + pushed.attempts + pushed.deckCards,
                 pulled = pulled
             )
         } catch (error: ServerException) {
@@ -137,6 +150,8 @@ class CloudSyncRepository(
             pulled += incomingAttempts.size
         }
 
+        pulled += mergeDeckProgress(remote.deckProgress)
+
         val current = settingsRepository.current()
         val profile = remote.profile
         if (remote.profileUpdatedMs > current.profileUpdatedAt && profile != null) {
@@ -151,5 +166,38 @@ class CloudSyncRepository(
             )
         }
         return pulled
+    }
+
+    /**
+     * Deck progress merges by timestamp, never by arrival order. An `unseen`
+     * marker wins an equal-timestamp tie so an undo on either device cannot be
+     * resurrected by an older "known" payload.
+     */
+    private suspend fun mergeDeckProgress(remote: List<JsonObject>): Int {
+        if (remote.isEmpty()) return 0
+        val local = dao.deckProgressOnce().associateBy { it.cardKey }
+        val incoming = ArrayList<DeckProgressEntity>()
+        remote.forEach { payload ->
+            val entry = WebBackup.parseDeckProgress(payload) ?: return@forEach
+            val existing = local[entry.cardKey]
+            if (existing == null) {
+                incoming += entry
+                return@forEach
+            }
+            val newer = entry.updatedAt > existing.updatedAt ||
+                (entry.updatedAt == existing.updatedAt && entry.status == DeckStatus.UNSEEN)
+            if (!newer) return@forEach
+            if (existing.updatedAt == entry.updatedAt &&
+                existing.status == entry.status &&
+                existing.lastResult == entry.lastResult
+            ) {
+                return@forEach
+            }
+            incoming += entry
+        }
+        if (incoming.isEmpty()) return 0
+        val distinct = incoming.associateBy { it.cardKey }.values.toList()
+        dao.upsertDeckProgress(distinct)
+        return distinct.size
     }
 }

@@ -218,7 +218,8 @@ interface AppDao {
         SELECT
             (SELECT COUNT(*) FROM sets WHERE synced = 0) +
             (SELECT COUNT(*) FROM questions WHERE synced = 0) +
-            (SELECT COUNT(*) FROM attempts WHERE synced = 0)
+            (SELECT COUNT(*) FROM attempts WHERE synced = 0) +
+            (SELECT COUNT(*) FROM deck_progress WHERE synced = 0)
         """
     )
     suspend fun pendingChangeCount(): Int
@@ -235,6 +236,28 @@ interface AppDao {
     @Query("UPDATE attempts SET synced = 1 WHERE id = :id")
     suspend fun markAttemptSynced(id: String)
 
+    // --------------------------------------------------------- deck progress
+    @Query("SELECT * FROM deck_progress")
+    fun observeDeckProgress(): Flow<List<DeckProgressEntity>>
+
+    @Query("SELECT * FROM deck_progress")
+    suspend fun deckProgressOnce(): List<DeckProgressEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDeckProgress(entry: DeckProgressEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDeckProgress(entries: List<DeckProgressEntity>)
+
+    @Query("SELECT COUNT(*) FROM deck_progress WHERE synced = 0")
+    fun observePendingDeckCount(): Flow<Int>
+
+    @Query("UPDATE deck_progress SET synced = 1")
+    suspend fun markAllDeckProgressSynced()
+
+    @Query("DELETE FROM deck_progress")
+    suspend fun deleteAllDeckProgress()
+
     // --------------------------------------------------------------- reset
     @Query("DELETE FROM attempts")
     suspend fun deleteAllAttempts()
@@ -250,6 +273,7 @@ interface AppDao {
         deleteAllAttempts()
         deleteAllQuestions()
         deleteAllSets()
+        deleteAllDeckProgress()
     }
 
     /** Replaces the whole offline library with an imported backup. */

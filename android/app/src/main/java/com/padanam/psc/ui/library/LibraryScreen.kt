@@ -22,9 +22,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.DocumentScanner
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
@@ -46,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.padanam.psc.data.model.DeckOverview
 import com.padanam.psc.data.model.SetSummary
 import com.padanam.psc.data.model.Topics
 import com.padanam.psc.ui.AppViewModel
@@ -56,7 +59,9 @@ import com.padanam.psc.ui.components.DarkCardButton
 import com.padanam.psc.ui.components.DarkGradientCard
 import com.padanam.psc.ui.components.EmptyStateCard
 import com.padanam.psc.ui.components.FloatingTabBarSpace
+import com.padanam.psc.ui.components.MonoChip
 import com.padanam.psc.ui.components.PageHeader
+import com.padanam.psc.ui.components.ProgressTrack
 import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.components.SearchField
 import com.padanam.psc.ui.components.SectionHeading
@@ -85,10 +90,12 @@ fun LibraryScreen(
     canScan: Boolean,
     onScan: () -> Unit,
     onImport: () -> Unit,
-    onOpenSet: (String) -> Unit
+    onOpenSet: (String) -> Unit,
+    onOpenDecks: () -> Unit
 ) {
     val sets by appVm.sets.collectAsStateWithLifecycle()
     val questionCount by appVm.questionCount.collectAsStateWithLifecycle()
+    val deckOverview by appVm.deckOverview.collectAsStateWithLifecycle()
 
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf(FILTER_ALL) }
@@ -214,6 +221,15 @@ fun LibraryScreen(
                         text = "Due $dueCount",
                         selected = filter == FILTER_DUE,
                         onClick = { filter = FILTER_DUE }
+                    )
+                }
+            }
+
+            if (deckOverview.cards > 0) {
+                item {
+                    DeckLibraryEntry(
+                        overview = deckOverview,
+                        onClick = onOpenDecks
                     )
                 }
             }
@@ -521,6 +537,50 @@ fun LibraryScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun DeckLibraryEntry(overview: DeckOverview, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(SurfaceWhite)
+            .clickable(onClick = onClick)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(IndigoSoft),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Rounded.Layers, null, tint = Indigo, modifier = Modifier.size(20.dp))
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Swipe decks", style = AppType.LabelSmallStrong, color = Navy)
+                MonoChip(text = "${overview.cards} cards")
+            }
+            Text(
+                "${overview.topicCount} topics · ${overview.pct}% learned",
+                style = AppType.BodyTiny,
+                color = InkMuted
+            )
+            ProgressTrack(
+                progress = overview.pct / 100f,
+                height = 4.dp
+            )
+        }
+        Icon(Icons.Rounded.ChevronRight, null, tint = InkMuted, modifier = Modifier.size(18.dp))
     }
 }
 

@@ -12,6 +12,9 @@ import com.padanam.psc.data.local.AttemptEntity
 import com.padanam.psc.data.local.QuestionEntity
 import com.padanam.psc.data.model.ActiveExam
 import com.padanam.psc.data.model.AnswerRecord
+import com.padanam.psc.data.model.DeckCard
+import com.padanam.psc.data.model.DeckOverview
+import com.padanam.psc.data.model.Decks
 import com.padanam.psc.data.model.QuizMode
 import com.padanam.psc.data.model.SetSummary
 import com.padanam.psc.data.model.SyncOutcome
@@ -28,6 +31,8 @@ import com.padanam.psc.data.repo.WebBackup
 import com.padanam.psc.util.Format
 import com.padanam.psc.work.ReminderScheduler
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -121,6 +126,39 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope, SharingStarted.WhileSubscribed(5_000), 0
     )
 
+    val deckProgress = dao.observeDeckProgress().safeCache(emptyList()).stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
+    )
+
+    val deckSession = container.deckSessionStore.session.safeCache(null).stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), null
+    )
+
+    private val deckCards = combine(
+        dao.observeSets(),
+        dao.observeAllQuestions()
+    ) { sets, questions -> Decks.buildCards(sets, questions) }
+        .safeCache(emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val deckOverview = combine(deckCards, deckProgress) { cards, progress ->
+        Decks.overview(cards, progress.associateBy { it.cardKey })
+    }.safeCache(DeckOverview()).stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), DeckOverview()
+    )
+
+    val deckSummary = combine(deckCards, deckProgress, deckSession) { cards, progress, session ->
+        Decks.summary(cards, progress.associateBy { it.cardKey }, session)
+    }.safeCache(null).stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), null
+    )
+
+    val deckContinue = combine(deckCards, deckProgress, deckSession) { cards, progress, session ->
+        Decks.continueInfo(cards, progress.associateBy { it.cardKey }, session)
+    }.safeCache(null).stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), null
+    )
+
     val online = container.networkMonitor.online.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), true
     )
@@ -128,10 +166,12 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     val pendingChanges = combine(
         dao.observePendingSetCount(),
         dao.observePendingQuestionCount(),
-        dao.observePendingAttemptCount()
-    ) { sets, questions, attempts -> sets + questions + attempts }.safeCache(0).stateIn(
-        viewModelScope, SharingStarted.WhileSubscribed(5_000), 0
-    )
+        dao.observePendingAttemptCount(),
+        dao.observePendingDeckCount()
+    ) { sets, questions, attempts, decks -> sets + questions + attempts + decks }
+        .safeCache(0).stateIn(
+            viewModelScope, SharingStarted.WhileSubscribed(5_000), 0
+        )
 
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 12)
     val events = _events.asSharedFlow()
@@ -536,6 +576,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     private suspend fun resetLocalWorkspace() {
         dao.resetLibrary()
         container.examStore.clear()
+        container.deckSessionStore.clear()
         container.scanSession.clear()
         settingsRepo.clearSyncStatus()
         settingsRepo.resetProfile()
@@ -544,6 +585,68 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
 
     fun clearAuthError() {
         _authError.value = ""
+    }
+
+    // ------------------------------------------------------------- deck flow
+
+    /**
+     * Opens a fresh round. [keys] narrows the deck (the missed pile) and
+     * [round] forces the round number shown on the completion screen.
+     */
+    suspend fun startDeckRound(
+        mainTopic: String,
+        subTopic: String,
+        keys: List<String>? = null,
+        shuffle: Boolean = false,
+        round: Int = 0
+    ): Boolean = withContext(Dispatchers.IO) {
+        container.deckRepository.startRound(
+            mainTopic = mainTopic,
+            subTopic = subTopic,
+            keys = keys,
+            shuffle = shuffle,
+            round = round
+        ) != null
+    }
+
+    /**
+     * Resumes the saved round for this scope, or creates the first round when
+     * there is none. Returns false when the deck has no cards.
+     */
+    suspend fun ensureDeckRound(mainTopic: String, subTopic: String): Boolean =
+        withContext(Dispatchers.IO) {
+            container.deckRepository.ensureRound(mainTopic, subTopic) != null
+        }
+
+    suspend fun sortDeckCard(result: String): DeckCard? {
+        val sorted = withContext(Dispatchers.IO) { container.deckRepository.sort(result) }
+        if (sorted != null) scheduleDeckSync()
+        return sorted
+    }
+
+    suspend fun undoDeckCard(): Boolean {
+        val undone = withContext(Dispatchers.IO) { container.deckRepository.undo() }
+        if (undone) scheduleDeckSync()
+        return undone
+    }
+
+    /**
+     * Rounds can move quickly, so deck progress syncs after a short pause
+     * instead of pushing a full workspace snapshot on every swipe. The web app
+     * debounces its auto-sync the same way.
+     */
+    private var deckSyncJob: Job? = null
+
+    private fun scheduleDeckSync() {
+        deckSyncJob?.cancel()
+        deckSyncJob = viewModelScope.launch {
+            delay(1_500)
+            syncInBackground()
+        }
+    }
+
+    suspend fun clearDeckRound() = withContext(Dispatchers.IO) {
+        container.deckRepository.clearRound()
     }
 
     // ------------------------------------------------------------- exam flow

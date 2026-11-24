@@ -78,6 +78,22 @@ data class QuestionEntity(
         if (lang == "ml" && explanationMl.isNotBlank()) explanationMl else explanationEn
 }
 
+/**
+ * Learned state for one deck card. The key is stable across devices
+ * (`question:<setId>:<questionId>`) so the same card merges with the web app.
+ * `unseen` is kept as an explicit reset marker instead of deleting the row, so
+ * an older `known` payload can never win after an undo.
+ */
+@Entity(tableName = "deck_progress")
+data class DeckProgressEntity(
+    @PrimaryKey val cardKey: String,
+    val status: String,
+    val lastResult: String = "",
+    val seenAt: Long = 0L,
+    val updatedAt: Long = 0L,
+    val synced: Boolean = false
+)
+
 @Entity(tableName = "attempts")
 data class AttemptEntity(
     @PrimaryKey val id: String,

@@ -5,12 +5,14 @@ import com.padanam.psc.data.auth.AuthRepository
 import com.padanam.psc.data.local.AppDao
 import com.padanam.psc.data.local.AppDatabase
 import com.padanam.psc.data.net.NetworkMonitor
+import com.padanam.psc.data.prefs.DeckSessionStore
 import com.padanam.psc.data.prefs.ExamStore
 import com.padanam.psc.data.prefs.SettingsRepository
 import com.padanam.psc.data.remote.ScanRepository
 import com.padanam.psc.data.remote.ServerApi
 import com.padanam.psc.data.repo.AttemptRepository
 import com.padanam.psc.data.repo.CloudSyncRepository
+import com.padanam.psc.data.repo.DeckRepository
 import com.padanam.psc.data.repo.LibraryRepository
 import com.padanam.psc.util.ScanSessionStore
 import kotlinx.coroutines.CoroutineScope
@@ -32,6 +34,7 @@ class AppContainer(context: Context) {
     val settingsRepository = SettingsRepository(appContext)
     val authRepository = AuthRepository(appContext)
     val examStore = ExamStore(appContext)
+    val deckSessionStore = DeckSessionStore(appContext)
     val networkMonitor = NetworkMonitor(appContext)
 
     val serverApi = ServerApi()
@@ -39,6 +42,7 @@ class AppContainer(context: Context) {
 
     val libraryRepository = LibraryRepository(dao)
     val attemptRepository = AttemptRepository(dao)
+    val deckRepository = DeckRepository(dao, deckSessionStore)
     val cloudSyncRepository = CloudSyncRepository(dao, serverApi, settingsRepository)
 
     val scanSession = ScanSessionStore()

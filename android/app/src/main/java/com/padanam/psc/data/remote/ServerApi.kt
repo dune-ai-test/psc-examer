@@ -76,12 +76,14 @@ data class RemoteSnapshot(
     val profileUpdatedMs: Long,
     val attemptsClearedMs: Long,
     val epochMs: Long,
-    val tombstones: List<RemoteTombstone>
+    val tombstones: List<RemoteTombstone>,
+    val deckProgress: List<JsonObject> = emptyList()
 )
 
 data class PushResult(
     val sets: Int,
-    val attempts: Int
+    val attempts: Int,
+    val deckCards: Int = 0
 )
 
 /** Provider readiness returned by `GET /api/scan`. */
@@ -238,7 +240,8 @@ class ServerApi(
                             deletedMs = item["deletedMs"]?.let { longNumber(it) } ?: 0L
                         )
                     }
-                }
+                },
+                deckProgress = root.array("deckProgress").mapNotNull { it as? JsonObject }
             )
         }
 
@@ -247,7 +250,8 @@ class ServerApi(
             val root = post(baseUrl, "/api/sync", token, payload)
             PushResult(
                 sets = root["sets"]?.let { numberOrNull(it) } ?: 0,
-                attempts = root["attempts"]?.let { numberOrNull(it) } ?: 0
+                attempts = root["attempts"]?.let { numberOrNull(it) } ?: 0,
+                deckCards = root["deckCards"]?.let { numberOrNull(it) } ?: 0
             )
         }
 

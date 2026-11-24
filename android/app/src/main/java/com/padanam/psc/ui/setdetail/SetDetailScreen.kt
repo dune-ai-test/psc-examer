@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.AlertDialog
@@ -93,7 +94,8 @@ fun SetDetailScreen(
     canManage: Boolean,
     onBack: () -> Unit,
     onStartSetup: (String) -> Unit,
-    onOpenAttempt: (String) -> Unit
+    onOpenAttempt: (String) -> Unit,
+    onOpenDeck: (String, String) -> Unit
 ) {
     val summary by appVm.setSummary(setId).collectAsStateWithLifecycle(initialValue = null)
     val questions by appVm.questions(setId).collectAsStateWithLifecycle(emptyList())
@@ -151,6 +153,15 @@ fun SetDetailScreen(
     val shown = if (showAll) questions else questions.take(5)
     val resume = activeExam?.takeIf { it.setId == setId }
 
+    /* A deck is grouped by main topic and subtopic, so this set joins any
+       other sets that share those labels instead of creating a one-off deck. */
+    fun openDeck() {
+        scope.launch {
+            appVm.ensureDeckRound(info.mainTopic, info.subTopic)
+            onOpenDeck(info.mainTopic, info.subTopic)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -192,7 +203,8 @@ fun SetDetailScreen(
                     language = language,
                     onLanguage = { language = Lang.normalize(it) },
                     onPractice = { onStartSetup(QuizMode.PRACTICE) },
-                    onExam = { onStartSetup(QuizMode.EXAM) }
+                    onExam = { onStartSetup(QuizMode.EXAM) },
+                    onDeck = ::openDeck
                 )
             }
 
@@ -551,7 +563,8 @@ private fun SetHero(
     language: String,
     onLanguage: (String) -> Unit,
     onPractice: () -> Unit,
-    onExam: () -> Unit
+    onExam: () -> Unit,
+    onDeck: () -> Unit
 ) {
     DarkGradientCard {
         Row(
@@ -660,6 +673,12 @@ private fun SetHero(
                 modifier = Modifier.weight(1f)
             )
         }
+        DarkCardButton(
+            text = "Study as a swipe deck",
+            icon = Icons.Rounded.Layers,
+            onClick = onDeck,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

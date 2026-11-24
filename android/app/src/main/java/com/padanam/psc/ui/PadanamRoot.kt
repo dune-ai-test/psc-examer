@@ -1,6 +1,7 @@
 package com.padanam.psc.ui
 
 import android.app.Activity
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.WindowInsets
@@ -37,6 +38,9 @@ import com.padanam.psc.ui.auth.AuthLoadingScreen
 import com.padanam.psc.ui.auth.LoginScreen
 import com.padanam.psc.ui.components.FloatingTabBar
 import com.padanam.psc.ui.components.MainTab
+import com.padanam.psc.ui.decks.DeckLibraryScreen
+import com.padanam.psc.ui.decks.DeckStudyScreen
+import com.padanam.psc.ui.decks.DeckTopicScreen
 import com.padanam.psc.ui.exam.ExamSetupScreen
 import com.padanam.psc.ui.home.HomeScreen
 import com.padanam.psc.ui.library.LibraryScreen
@@ -70,8 +74,14 @@ object Routes {
     const val EXAM_SETUP = "examsetup/{setId}?mode={mode}"
     const val RESULTS = "results/{attemptId}"
     const val REVIEW = "review/{attemptId}"
+    const val DECKS = "decks"
+    const val DECK_TOPIC = "decktopic?topic={topic}"
+    const val DECK_STUDY = "deckstudy?topic={topic}&sub={sub}"
 
     fun set(setId: String) = "set/$setId"
+    fun deckTopic(topic: String) = "decktopic?topic=${Uri.encode(topic)}"
+    fun deckStudy(topic: String, sub: String = "") =
+        "deckstudy?topic=${Uri.encode(topic)}&sub=${Uri.encode(sub)}"
     fun scan(gallery: Boolean = false) = "$SCAN?gallery=$gallery"
     fun scanResult(setId: String, appended: Boolean = false, added: Int = 0) =
         "scanresult/$setId?appended=$appended&added=$added"
@@ -211,7 +221,11 @@ private fun SignedInRoot(
                     onStartMode = { setId, mode ->
                         navController.navigate(Routes.examSetup(setId, mode))
                     },
-                    onOpenAttempt = { navController.navigate(Routes.review(it)) }
+                    onOpenAttempt = { navController.navigate(Routes.review(it)) },
+                    onOpenDecks = { navController.navigate(Routes.DECKS) },
+                    onContinueDeck = { topic, sub ->
+                        navController.navigate(Routes.deckStudy(topic, sub))
+                    }
                 )
             }
 
@@ -221,7 +235,8 @@ private fun SignedInRoot(
                     canScan = admin,
                     onScan = { openScan() },
                     onImport = { openScan(gallery = true) },
-                    onOpenSet = { navController.navigate(Routes.set(it)) }
+                    onOpenSet = { navController.navigate(Routes.set(it)) },
+                    onOpenDecks = { navController.navigate(Routes.DECKS) }
                 )
             }
 
@@ -291,7 +306,68 @@ private fun SignedInRoot(
                     onStartSetup = { mode ->
                         navController.navigate(Routes.examSetup(setId, mode))
                     },
-                    onOpenAttempt = { navController.navigate(Routes.review(it)) }
+                    onOpenAttempt = { navController.navigate(Routes.review(it)) },
+                    onOpenDeck = { topic, sub ->
+                        navController.navigate(Routes.deckStudy(topic, sub))
+                    }
+                )
+            }
+
+            composable(Routes.DECKS) {
+                DeckLibraryScreen(
+                    appVm = appVm,
+                    onBack = { navController.popBackStack() },
+                    onOpenLibrary = { navigateTab(Routes.LIBRARY) },
+                    onOpenTopic = { navController.navigate(Routes.deckTopic(it)) },
+                    onOpenStudy = { topic, sub ->
+                        navController.navigate(Routes.deckStudy(topic, sub))
+                    }
+                )
+            }
+
+            composable(
+                route = Routes.DECK_TOPIC,
+                arguments = listOf(
+                    navArgument("topic") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }
+                )
+            ) { entry ->
+                DeckTopicScreen(
+                    appVm = appVm,
+                    topicName = entry.arguments?.getString("topic").orEmpty(),
+                    onBack = { navController.popBackStack() },
+                    onOpenStudy = { topic, sub ->
+                        navController.navigate(Routes.deckStudy(topic, sub))
+                    }
+                )
+            }
+
+            composable(
+                route = Routes.DECK_STUDY,
+                arguments = listOf(
+                    navArgument("topic") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    },
+                    navArgument("sub") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }
+                )
+            ) { entry ->
+                DeckStudyScreen(
+                    appVm = appVm,
+                    mainTopic = entry.arguments?.getString("topic").orEmpty(),
+                    subTopic = entry.arguments?.getString("sub").orEmpty(),
+                    onClose = { navController.popBackStack() },
+                    onOpenTopic = { topic ->
+                        navController.navigate(Routes.deckTopic(topic)) {
+                            popUpTo(Routes.DECK_STUDY) { inclusive = true }
+                            launchSingleTop = true
+                        }
+                    }
                 )
             }
 

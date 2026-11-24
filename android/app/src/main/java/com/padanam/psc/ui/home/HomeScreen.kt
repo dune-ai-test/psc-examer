@@ -71,6 +71,7 @@ import com.padanam.psc.ui.components.ProgressTrack
 import com.padanam.psc.ui.components.SectionHeading
 import com.padanam.psc.ui.components.SetRow
 import com.padanam.psc.ui.components.ThinDivider
+import com.padanam.psc.ui.decks.DeckHomeCard
 import com.padanam.psc.ui.theme.Amber
 import com.padanam.psc.ui.theme.AppType
 import com.padanam.psc.ui.theme.Cloud
@@ -102,13 +103,17 @@ fun HomeScreen(
     onResumeExam: () -> Unit,
     onOpenProfile: () -> Unit,
     onStartMode: (String, String) -> Unit,
-    onOpenAttempt: (String) -> Unit
+    onOpenAttempt: (String) -> Unit,
+    onOpenDecks: () -> Unit,
+    onContinueDeck: (String, String) -> Unit
 ) {
     val settings by appVm.settings.collectAsStateWithLifecycle()
     val sets by appVm.sets.collectAsStateWithLifecycle()
     val attempts by appVm.attempts.collectAsStateWithLifecycle()
     val exam by appVm.activeExam.collectAsStateWithLifecycle()
     val questionCount by appVm.questionCount.collectAsStateWithLifecycle()
+    val deckOverview by appVm.deckOverview.collectAsStateWithLifecycle()
+    val deckContinue by appVm.deckContinue.collectAsStateWithLifecycle()
 
     var remindersDialog by remember { mutableStateOf(false) }
 
@@ -232,6 +237,18 @@ fun HomeScreen(
                         answeredToday = answeredToday,
                         goal = goal,
                         due = due
+                    )
+                }
+            }
+
+            if (deckOverview.cards > 0 && exam == null) {
+                item {
+                    DeckHomeCard(
+                        overview = deckOverview,
+                        continueInfo = deckContinue,
+                        onBrowse = onOpenDecks,
+                        onOpenLibrary = onOpenLibrary,
+                        onContinue = { onContinueDeck(it.mainTopic, it.subTopic) }
                     )
                 }
             }

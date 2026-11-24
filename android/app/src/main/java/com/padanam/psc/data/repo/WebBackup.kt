@@ -1,9 +1,12 @@
 package com.padanam.psc.data.repo
 
 import com.padanam.psc.data.local.AttemptEntity
+import com.padanam.psc.data.local.DeckProgressEntity
 import com.padanam.psc.data.local.QuestionEntity
 import com.padanam.psc.data.local.SetEntity
 import com.padanam.psc.data.model.AnswerRecord
+import com.padanam.psc.data.model.DeckResult
+import com.padanam.psc.data.model.DeckStatus
 import com.padanam.psc.data.model.QuizMode
 import com.padanam.psc.data.model.Topics
 import com.padanam.psc.data.prefs.AppSettings
@@ -54,6 +57,10 @@ object WebBackup {
 
     private const val MAX_OPTIONS = 6
     private val LETTERS = listOf("A", "B", "C", "D", "E", "F")
+
+    /** Mirrors the server: future card namespaces such as `scan:<deck>:<card>` fit too. */
+    const val MAX_DECK_CARDS = 20_000
+    private val DECK_KEY = Regex("^[a-z][a-z0-9_-]*:.+$")
 
     // ------------------------------------------------------------ export
 
@@ -187,6 +194,71 @@ object WebBackup {
             })
         }
     }
+
+    // --------------------------------------------------------- deck progress
+
+    fun deckProgressToJson(entry: DeckProgressEntity): JsonObject {
+        val status = DeckStatus.normalize(entry.status)
+        val lastResult = when (status) {
+            DeckStatus.KNOWN -> DeckResult.GOT_IT
+            DeckStatus.SEEN -> DeckResult.AGAIN
+            else -> ""
+        }
+        return buildJsonObject {
+            put("key", entry.cardKey)
+            put("status", status)
+            put("lastResult", lastResult)
+            put(
+                "seenAt",
+                if (status == DeckStatus.UNSEEN || entry.seenAt <= 0L) {
+                    ""
+                } else {
+                    jsonDate(entry.seenAt)
+                }
+            )
+            put(
+                "updatedAt",
+                jsonDate(entry.updatedAt.takeIf { it > 0L } ?: System.currentTimeMillis())
+            )
+        }
+    }
+
+    fun parseDeckProgress(payload: JsonObject): DeckProgressEntity? {
+        val key = payload.string("key").trim()
+        if (!validDeckKey(key)) return null
+        val updated = parseJsonDate(payload.string("updatedAt"))
+        if (updated <= 0L) return null
+
+        val result = DeckResult.normalize(payload.string("lastResult"))
+        val status = when (val raw = payload.string("status")) {
+            DeckStatus.KNOWN, DeckStatus.SEEN, DeckStatus.UNSEEN -> raw
+            else -> when (result) {
+                DeckResult.GOT_IT -> DeckStatus.KNOWN
+                DeckResult.AGAIN -> DeckStatus.SEEN
+                else -> DeckStatus.SEEN
+            }
+        }
+        val seenAt = if (status == DeckStatus.UNSEEN) {
+            0L
+        } else {
+            parseJsonDate(payload.string("seenAt")).takeIf { it > 0L } ?: updated
+        }
+        return DeckProgressEntity(
+            cardKey = key,
+            status = status,
+            lastResult = when (status) {
+                DeckStatus.KNOWN -> DeckResult.GOT_IT
+                DeckStatus.SEEN -> DeckResult.AGAIN
+                else -> ""
+            },
+            seenAt = seenAt,
+            updatedAt = updated,
+            synced = true
+        )
+    }
+
+    fun validDeckKey(key: String): Boolean =
+        key.length in 3..320 && DECK_KEY.matches(key)
 
     // ------------------------------------------------------------ import
 
