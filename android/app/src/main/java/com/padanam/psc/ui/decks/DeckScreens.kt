@@ -135,6 +135,10 @@ fun DeckLibraryScreen(
 
     BackHandler(onBack = onBack)
 
+    LaunchedEffect(Unit) {
+        appVm.refreshRemoteDecks()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -369,6 +373,10 @@ fun DeckTopicScreen(
 
     BackHandler(onBack = onBack)
 
+    LaunchedEffect(Unit) {
+        appVm.refreshRemoteDecks()
+    }
+
     val activeTopic = session != null &&
         session!!.mainTopic.equals(topic?.name.orEmpty(), ignoreCase = true) &&
         session!!.subTopic.isBlank()
@@ -596,6 +604,7 @@ fun DeckStudyScreen(
     var guideOpen by remember { mutableStateOf(!deckGuideSeen) }
 
     LaunchedEffect(mainTopic, subTopic) {
+        appVm.refreshRemoteDecks()
         val ok = appVm.ensureDeckRound(mainTopic, subTopic)
         failed = !ok
         ready = true

@@ -5,6 +5,7 @@ import com.padanam.psc.data.auth.AuthRepository
 import com.padanam.psc.data.local.AppDao
 import com.padanam.psc.data.local.AppDatabase
 import com.padanam.psc.data.net.NetworkMonitor
+import com.padanam.psc.data.prefs.DeckCardStore
 import com.padanam.psc.data.prefs.DeckSessionStore
 import com.padanam.psc.data.prefs.ExamStore
 import com.padanam.psc.data.prefs.SettingsRepository
@@ -35,6 +36,7 @@ class AppContainer(context: Context) {
     val authRepository = AuthRepository(appContext)
     val examStore = ExamStore(appContext)
     val deckSessionStore = DeckSessionStore(appContext)
+    val deckCardStore = DeckCardStore(appContext)
     val networkMonitor = NetworkMonitor(appContext)
 
     val serverApi = ServerApi()
@@ -42,7 +44,7 @@ class AppContainer(context: Context) {
 
     val libraryRepository = LibraryRepository(dao)
     val attemptRepository = AttemptRepository(dao)
-    val deckRepository = DeckRepository(dao, deckSessionStore)
+    val deckRepository = DeckRepository(dao, deckSessionStore, deckCardStore)
     val cloudSyncRepository = CloudSyncRepository(dao, serverApi, settingsRepository)
 
     val scanSession = ScanSessionStore()

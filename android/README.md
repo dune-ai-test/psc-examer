@@ -21,6 +21,13 @@ functions (`/api/auth`, `/api/admin`, `/api/sync`, `/api/scan`).
   active exam after leaving the app, or finish early with confirmation.
 - **Saved scores** — every attempt is written to Room with a self-contained
   answer snapshot and synced to the account workspace when auto-sync is on.
+- **Swipe decks** — one question and one answer at a time, grouped by main topic
+  and subtopic. Swipe or tap **Known** / **Again**, undo the last swipe, review
+  the missed pile, or shuffle another round. Learned state syncs with the
+  account; the current round stays on this phone.
+- **Shared scanned decks** — the administrator can copy a reviewed scan into an
+  optional second Neon database. Every signed-in account then sees those cards
+  in its deck library alongside assigned sets.
 - **Offline first** — Room is the source of truth. A signed-in session keeps
   working offline; the next sync merges both sides by timestamp.
 - **Library assignment** — an admin assigns sets from the shared cloud library
@@ -55,6 +62,8 @@ the server. Learner accounts are created in the admin console.
 | Question | Custom timer/counter, palette, flags, leave and submit dialogs |
 | Results | Pass/fail hero, breakdown, stat tiles, share and review |
 | Set detail | Hero, stats, language switch, question previews, attempts |
+| Deck library | Overall progress, continue strip, topic cards and subtopic tiles |
+| Deck study | One-card reveal, swipe or buttons, undo, missed-pile review and shuffle |
 | Answer review | Filters, stored answer cards, correct/selected visuals |
 | Admin console | Learners, create account, sync admin library, reset learner password, assign sets |
 | Settings | Account, site address, cloud sync, sign out |
@@ -86,6 +95,8 @@ navigation graph.
   `ADMIN_PASSWORD` and `NEON_CONNECTION_STRING` configured in Cloudflare Pages.
   Scan secrets (`GEMINI_API_KEY` or the custom OpenAI-compatible values) are
   optional; when they are missing the scan screen shows a clear server message.
+  The optional `DECK_NEON_CONNECTION_STRING` enables the shared scanned deck
+  database; without it the app builds decks from the account library only.
 
 ### Build and install
 
@@ -128,7 +139,9 @@ No `local.properties` secrets are needed. The app builds with no keys at all.
 6. **Save** — `LibraryRepository.saveScan` writes a new set, or `appendScan`
    updates the chosen set in place. Appending keeps its title, subject and
    previous questions, gives the new questions fresh IDs and bumps `updatedAt`.
-   New titles get a `(2)`, `(3)` suffix if they collide.
+   New titles get a `(2)`, `(3)` suffix if they collide. The administrator can
+   also press **Save to decks** on the review card to copy the same draft into
+   the optional shared scanned-deck database without changing the library.
 7. **Sync** — when auto-sync is on, the saved set is pushed to the signed-in
    workspace. The admin can then assign it to a learner from the admin console.
 
@@ -141,6 +154,11 @@ No `local.properties` secrets are needed. The app builds with no keys at all.
   the correct answer and the explanation.
 - Sync pulls the account workspace, merges newer sets and new attempts, then
   pushes the union. Set timestamps decide the winner.
+- Deck progress is part of the same sync payload. Card keys are
+  `question:<setId>:<questionId>` for library cards and
+  `scan:<deckId>:<cardId>` for scanned deck cards.
+- Scanned deck cards themselves are cached from `/api/decks`; the database
+  connection string stays on the server and is never stored in the APK.
 - The sync payload matches the web JSON exactly, so `padanam_sets`,
   `padanam_attempts` and `padanam_profile` are shared between web and Android.
 - Signing out clears the offline cache so the next account cannot read the
@@ -184,11 +202,12 @@ android/
 │  │  ├─ model/                  AI models, active exam, answer records
 │  │  ├─ prefs/                  settings and active-exam DataStores
 │  │  ├─ remote/                 Padanam API client and scan prompt
-│  │  └─ repo/                   library, attempts, cloud sync
+│  │  └─ repo/                   library, attempts, decks, cloud sync
 │  ├─ ui/
 │  │  ├─ admin/                  admin console and view model
 │  │  ├─ auth/                   login and loading screens
 │  │  ├─ components/             shared chrome, cards, question visuals
+│  │  ├─ decks/                  deck library, topic, study and completion
 │  │  ├─ theme/                  colours, typography, Material theme
 │  │  ├─ home/ library/ progress/ profile/ settings/ setdetail/
 │  │  ├─ exam/ quiz/             setup, question runner, results, review
@@ -205,8 +224,10 @@ android/
 
 - Photographs stay in the app cache and are sent only to the deployed scan
   function while a scan is running.
-- Neon stores sets, questions, attempts and the profile. It never stores images,
-  AI keys or passwords (passwords are PBKDF2 hashes).
+- Neon stores sets, questions, attempts, deck progress and the profile. It never
+  stores images, AI keys or passwords (passwords are PBKDF2 hashes). Scanned
+  deck cards live in the optional second Neon database and are shared with every
+  signed-in account.
 - The APK contains no API keys and no database credentials. Sessions are
   HMAC-signed tokens issued by the server and stored in app-private DataStore.
 - Android backup is disabled so a restored backup cannot copy another device's
@@ -233,6 +254,12 @@ android/
 - [ ] Sign out; the local library is cleared.
 - [ ] Sign in as the learner and confirm only assigned sets appear.
 - [ ] Scan one clear page as admin; verify both languages and the correct option.
+- [ ] Press **Save to decks** on the review card and confirm the cards appear in
+      the deck library without changing the saved set.
+- [ ] Open a deck, swipe a few cards, undo one, then finish the round and review
+      the missed pile.
+- [ ] Sign in on the web with the same account and confirm the learned card
+      states match.
 - [ ] Scan again, choose an existing set on the review screen, and confirm the
       questions are appended while its title, subject and old questions remain.
 - [ ] Start a mock exam, background the app for a minute, return and confirm the

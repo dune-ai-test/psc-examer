@@ -30,6 +30,7 @@ import com.padanam.psc.data.repo.QuestionDraft
 import com.padanam.psc.data.repo.WebBackup
 import com.padanam.psc.util.Format
 import com.padanam.psc.work.ReminderScheduler
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -134,10 +135,15 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope, SharingStarted.WhileSubscribed(5_000), null
     )
 
+    private val remoteDeckCards = container.deckCardStore.cards.safeCache(emptyList()).stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
+    )
+
     private val deckCards = combine(
         dao.observeSets(),
-        dao.observeAllQuestions()
-    ) { sets, questions -> Decks.buildCards(sets, questions) }
+        dao.observeAllQuestions(),
+        remoteDeckCards
+    ) { sets, questions, remote -> Decks.buildCards(sets, questions, remote) }
         .safeCache(emptyList())
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -188,6 +194,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     init {
         viewModelScope.launch(Dispatchers.IO) {
             restoreSession()
+            runCatching { refreshRemoteDecks() }
         }
         viewModelScope.launch(Dispatchers.IO) {
             var wasOffline = false
@@ -455,6 +462,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
                     )
                 )
                 outcome?.let { reportSync(it, silentSuccess = true) }
+                if (onlineNow) runCatching { refreshRemoteDecks() }
             } catch (error: Exception) {
                 emit(UiEvent(error.message ?: "Couldn't switch accounts.", error = true))
             } finally {
@@ -577,7 +585,9 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
         dao.resetLibrary()
         container.examStore.clear()
         container.deckSessionStore.clear()
+        container.deckCardStore.clear()
         container.scanSession.clear()
+        remoteDecksLoadedAt = 0L
         settingsRepo.clearSyncStatus()
         settingsRepo.resetProfile()
         _syncOp.value = OperationState()
@@ -648,6 +658,39 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     suspend fun clearDeckRound() = withContext(Dispatchers.IO) {
         container.deckRepository.clearRound()
     }
+
+    /**
+     * Loads the shared scanned deck cards from the optional second database.
+     * The short cache keeps navigation between deck screens from repeating the
+     * request; a failed load keeps the last cached cards usable offline.
+     */
+    private var remoteDecksLoadedAt = 0L
+
+    suspend fun refreshRemoteDecks(force: Boolean = false): String? =
+        withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            if (!force && remoteDecksLoadedAt > 0 &&
+                now - remoteDecksLoadedAt < REMOTE_DECK_TTL_MS
+            ) {
+                return@withContext null
+            }
+            val settings = settingsRepo.current()
+            val session = container.authRepository.current()
+                ?: return@withContext null
+            val base = session.serverUrl.ifBlank { settings.serverUrl }
+            if (base.isBlank()) return@withContext null
+
+            try {
+                val cards = container.serverApi.deckCards(base, session.token)
+                container.deckCardStore.save(cards)
+                remoteDecksLoadedAt = System.currentTimeMillis()
+                null
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                error.message ?: "Couldn't load the scanned decks."
+            }
+        }
 
     // ------------------------------------------------------------- exam flow
 
@@ -1297,6 +1340,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
                 }
             }
             reportSync(outcome, silent)
+            if (outcome.ok) runCatching { refreshRemoteDecks() }
         }
     }
 
@@ -1317,6 +1361,7 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
             if (outcome.ok) {
                 settingsRepo.markSynced(outcome.message)
                 if (settingsRepo.current().offlineReady) settingsRepo.markOfflineReady()
+                runCatching { refreshRemoteDecks() }
             } else {
                 settingsRepo.markSyncFailed(outcome.message)
             }
@@ -1354,6 +1399,8 @@ class AppViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     companion object {
+        private const val REMOTE_DECK_TTL_MS = 60_000L
+
         fun factory(container: AppContainer): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")

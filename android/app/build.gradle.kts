@@ -26,8 +26,8 @@ android {
         applicationId = "com.padanam.psc"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.4.8"
+        versionCode = 14
+        versionName = "1.4.9"
     }
 
     // A committed debug key keeps every CI build signed by the same

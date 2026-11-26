@@ -1,6 +1,9 @@
 package com.padanam.psc.data.remote
 
 import com.padanam.psc.data.auth.AuthUser
+import com.padanam.psc.data.model.AiScanResult
+import com.padanam.psc.data.model.Decks
+import com.padanam.psc.data.model.RemoteDeckCard
 import com.padanam.psc.data.model.TopicSuggestion
 import com.padanam.psc.data.model.Topics
 import com.padanam.psc.data.remote.Network.client
@@ -255,6 +258,60 @@ class ServerApi(
             )
         }
 
+    /**
+     * Reads the shared scanned deck cards from the optional second database.
+     * A site without `DECK_NEON_CONNECTION_STRING` simply returns no cards.
+     */
+    suspend fun deckCards(baseUrl: String, token: String): List<RemoteDeckCard> =
+        withContext(Dispatchers.IO) {
+            val root = get(baseUrl, "/api/decks", token)
+            root.array("cards").mapNotNull { element ->
+                (element as? JsonObject)?.toRemoteDeckCard()
+            }
+        }
+
+    /** Saves the reviewed scan draft into the shared scanned deck database. */
+    suspend fun saveDeckCards(
+        baseUrl: String,
+        token: String,
+        result: AiScanResult
+    ): Int = withContext(Dispatchers.IO) {
+        val letters = listOf("A", "B", "C", "D", "E", "F")
+        val questions = buildJsonArray {
+            result.questions.forEach { question ->
+                val index = letters.indexOf(question.correctOption.trim().uppercase().take(1))
+                val option = question.options.firstOrNull {
+                    it.letter.trim().uppercase() == question.correctOption.trim().uppercase().take(1)
+                } ?: question.options.getOrNull(index)
+                val stem = question.questionEn.ifBlank { question.questionMl }
+                val answer = option?.textEn.orEmpty().ifBlank { option?.textMl.orEmpty() }
+                if (stem.isBlank() || answer.isBlank()) return@forEach
+                add(buildJsonObject {
+                    put("stem", stem)
+                    put("answer", answer)
+                    put("explanation", question.explanationEn)
+                    put("stemMl", question.questionMl)
+                    put("answerMl", option?.textMl.orEmpty())
+                    put("explanationMl", question.explanationMl)
+                })
+            }
+        }
+        if (questions.isEmpty()) {
+            throw ServerException("There are no complete cards to save to decks.")
+        }
+
+        val title = result.title.trim().ifBlank { "Scanned deck" }
+        val root = post(baseUrl, "/api/decks", token, buildJsonObject {
+            put("action", "save")
+            put("title", title.take(160))
+            put("mainTopic", result.mainTopic.trim().take(80))
+            put("subTopic", result.subTopic.trim().take(120).ifBlank { title.take(120) })
+            put("language", "en")
+            put("questions", questions)
+        })
+        root["saved"]?.let { numberOrNull(it) } ?: 0
+    }
+
     suspend fun scan(
         baseUrl: String,
         token: String,
@@ -499,6 +556,39 @@ internal fun JsonObject.toAuthUser(): AuthUser = AuthUser(
     displayName = string("displayName").ifBlank { string("username") },
     role = string("role").ifBlank { "user" }
 )
+
+internal fun JsonObject.toRemoteDeckCard(): RemoteDeckCard? {
+    val key = string("key").trim()
+    val deckId = string("deckId").trim()
+    val cardId = string("cardId").trim()
+    if (!Decks.isRemoteKey(key) || deckId.isBlank() || cardId.isBlank()) return null
+    if (key != "scan:$deckId:$cardId") return null
+
+    val stem = string("stem").trim()
+    val stemMl = string("stemMl").trim()
+    val answer = string("answer").trim()
+    val answerMl = string("answerMl").trim()
+    if ((stem.isBlank() && stemMl.isBlank()) || (answer.isBlank() && answerMl.isBlank())) {
+        return null
+    }
+
+    return RemoteDeckCard(
+        key = key,
+        deckId = deckId,
+        cardId = cardId,
+        deckTitle = string("deckTitle").trim(),
+        mainTopic = string("mainTopic").trim(),
+        subTopic = string("subTopic").trim(),
+        language = if (string("language") == "ml") "ml" else "en",
+        stem = stem,
+        stemMl = stemMl,
+        answer = answer,
+        answerMl = answerMl,
+        explanation = string("explanation").trim(),
+        explanationMl = string("explanationMl").trim(),
+        updatedAt = string("updatedAt").trim()
+    )
+}
 
 internal fun JsonObject.toAdminUser(): AdminUser? {
     val id = string("id")

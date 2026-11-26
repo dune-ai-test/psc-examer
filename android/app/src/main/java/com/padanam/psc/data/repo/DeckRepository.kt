@@ -9,6 +9,7 @@ import com.padanam.psc.data.model.DeckResult
 import com.padanam.psc.data.model.DeckSession
 import com.padanam.psc.data.model.DeckStatus
 import com.padanam.psc.data.model.Decks
+import com.padanam.psc.data.prefs.DeckCardStore
 import com.padanam.psc.data.prefs.DeckSessionStore
 import kotlinx.coroutines.flow.first
 
@@ -18,11 +19,16 @@ import kotlinx.coroutines.flow.first
  */
 class DeckRepository(
     private val dao: AppDao,
-    private val sessionStore: DeckSessionStore
+    private val sessionStore: DeckSessionStore,
+    private val cardStore: DeckCardStore
 ) {
 
     private suspend fun cardsOnce(): List<DeckCard> =
-        Decks.buildCards(dao.setsOnce(), dao.allQuestionsOnce())
+        Decks.buildCards(
+            dao.setsOnce(),
+            dao.allQuestionsOnce(),
+            cardStore.cards.first()
+        )
 
     private suspend fun progressOnce(): Map<String, DeckProgressEntity> =
         dao.deckProgressOnce().associateBy { it.cardKey }

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.RadioButtonChecked
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
@@ -192,6 +193,7 @@ fun AnalysingScreen(
                         onDraftSubTopic = { vm.updateDraftTopic(subTopic = it) },
                         onSuggestTopics = vm::suggestTopics,
                         onSave = vm::saveDraft,
+                        onSaveDeck = vm::saveDraftToDeck,
                         onDiscard = { closeScreen() }
                     )
                 } else {
@@ -442,6 +444,7 @@ private fun ReviewPanel(
     onDraftSubTopic: (String) -> Unit,
     onSuggestTopics: () -> Unit,
     onSave: () -> Unit,
+    onSaveDeck: () -> Unit,
     onDiscard: () -> Unit
 ) {
     val draft = state.draft ?: return
@@ -450,6 +453,7 @@ private fun ReviewPanel(
     val target = state.destinations.firstOrNull { it.id == state.targetSetId }
     val saveError = state.error
     val topicNotice = state.topicNotice
+    val deckError = state.deckError
     val subTopicSuggestions = state.destinations
         .map { it.subTopic }
         .distinct()
@@ -560,6 +564,30 @@ private fun ReviewPanel(
             }
         }
 
+        if (!deckError.isNullOrBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DangerSoft)
+                    .padding(horizontal = 11.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = Danger,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(
+                    deckError,
+                    style = AppType.BodyTiny,
+                    color = Danger
+                )
+            }
+        }
+
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             draft.questions.take(3).forEachIndexed { index, question ->
                 Row(
@@ -646,6 +674,29 @@ private fun ReviewPanel(
             onClick = onSave,
             icon = Icons.Rounded.Check,
             enabled = !state.running
+        )
+
+        LightButton(
+            text = when {
+                state.savingDeck -> "Saving to decks…"
+                state.deckSaved -> "Saved to decks"
+                else -> "Save to decks"
+            },
+            onClick = onSaveDeck,
+            icon = if (state.deckSaved) Icons.Rounded.Check else Icons.Rounded.Layers,
+            container = if (state.deckSaved) SuccessSoft else IndigoWash,
+            tint = if (state.deckSaved) Success else Indigo,
+            height = 46.dp
+        )
+
+        Text(
+            if (state.deckSaved) {
+                "The cards are in the shared deck library. Your set was not changed."
+            } else {
+                "Optional: copy these cards to the shared deck library as well. This does not save a set."
+            },
+            style = AppType.BodyTiny,
+            color = InkMuted
         )
 
         LightButton(

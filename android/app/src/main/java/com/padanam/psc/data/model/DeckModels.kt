@@ -60,6 +60,29 @@ data class DeckSession(
     val startedAtEpochMs: Long = 0L
 )
 
+/**
+ * One card from the optional scanned-deck database. It is cached on the phone
+ * so the deck library still opens offline, and its key (`scan:<deckId>:<cardId>`)
+ * is what deck progress syncs under.
+ */
+@Serializable
+data class RemoteDeckCard(
+    val key: String,
+    val deckId: String,
+    val cardId: String,
+    val deckTitle: String = "",
+    val mainTopic: String = "",
+    val subTopic: String = "",
+    val language: String = "en",
+    val stem: String = "",
+    val stemMl: String = "",
+    val answer: String = "",
+    val answerMl: String = "",
+    val explanation: String = "",
+    val explanationMl: String = "",
+    val updatedAt: String = ""
+)
+
 /** A question projected into its one-question/one-answer deck card. */
 data class DeckCard(
     val key: String,
@@ -69,25 +92,26 @@ data class DeckCard(
     val subTopic: String,
     val setTitle: String,
     val subject: String,
-    val question: QuestionEntity
+    private val stemEn: String,
+    private val stemMl: String,
+    private val optionsEn: List<String>,
+    private val optionsMl: List<String>,
+    private val answerIndex: Int,
+    private val explanationEn: String,
+    private val explanationMl: String
 ) {
     private val mlReady: Boolean
-        get() {
-            if (question.questionMl.isBlank()) return false
-            val en = question.optionsEn()
-            val ml = question.optionsMl()
-            return en.size == ml.size && ml.all { it.isNotBlank() }
-        }
-
-    private val optionsEn: List<String> get() = question.optionsEn()
-    private val optionsMl: List<String> get() = question.optionsMl()
+        get() = stemMl.isNotBlank() &&
+            optionsMl.isNotEmpty() &&
+            optionsMl.size == optionsEn.size &&
+            optionsMl.all { it.isNotBlank() }
 
     /** Mirrors the web app: Malayalam is used only when the whole card is bilingual. */
     fun usesMalayalam(lang: String): Boolean = lang == Lang.ML && mlReady
 
     fun stem(lang: String): String =
-        if (usesMalayalam(lang)) question.questionMl
-        else question.questionEn.ifBlank { question.questionMl }
+        if (usesMalayalam(lang)) stemMl
+        else stemEn.ifBlank { stemMl }
 
     fun options(lang: String): List<String> =
         if (usesMalayalam(lang)) optionsMl else optionsEn
@@ -100,18 +124,17 @@ data class DeckCard(
     fun answerLetter(): String = LETTERS.getOrElse(answerIndex) { "A" }
 
     fun explanation(lang: String): String {
-        val primary = if (usesMalayalam(lang)) question.explanationMl else question.explanationEn
+        val primary = if (usesMalayalam(lang)) explanationMl else explanationEn
         return primary.ifBlank {
-            if (usesMalayalam(lang)) question.explanationEn else question.explanationMl
+            if (usesMalayalam(lang)) explanationEn else explanationMl
         }
     }
 
-    private val answerIndex: Int
-        get() = LETTERS.indexOf(question.correctOption.trim().uppercase())
-            .takeIf { it >= 0 } ?: 0
-
     companion object {
         private val LETTERS = listOf("A", "B", "C", "D", "E", "F")
+
+        fun indexOfOption(letter: String): Int =
+            LETTERS.indexOf(letter.trim().uppercase()).takeIf { it >= 0 } ?: 0
     }
 }
 
@@ -179,34 +202,82 @@ object Decks {
     const val MAX_KEYS = 20_000
     const val MAX_ACTIONS = 20_000
 
+    private val REMOTE_KEY = Regex("^scan:[a-z0-9][a-z0-9_-]{0,60}:[a-z0-9][a-z0-9_-]{0,60}$")
+
+    fun isRemoteKey(key: String): Boolean = REMOTE_KEY.matches(key)
+
     fun keyFor(setId: String, questionId: String): String =
         "question:$setId:$questionId"
 
     fun buildCards(
         sets: List<SetEntity>,
-        questions: List<QuestionEntity>
+        questions: List<QuestionEntity>,
+        remoteCards: List<RemoteDeckCard> = emptyList()
     ): List<DeckCard> {
         val bySet = questions.groupBy { it.setId }
-        val cards = ArrayList<DeckCard>(questions.size)
+        val cards = ArrayList<DeckCard>(questions.size + remoteCards.size)
+        val seen = HashSet<String>(questions.size + remoteCards.size)
         sets.forEach { set ->
             val mainTopic = Topics.normalize(set.mainTopic, set.title, set.subject)
             val subTopic = Topics.subTopic(set.subTopic, set.title)
             bySet[set.id].orEmpty()
                 .sortedBy { it.order }
                 .forEach { question ->
+                    val key = keyFor(set.id, question.id)
+                    if (!seen.add(key)) return@forEach
                     cards += DeckCard(
-                        key = keyFor(set.id, question.id),
+                        key = key,
                         setId = set.id,
                         questionId = question.id,
                         mainTopic = mainTopic,
                         subTopic = subTopic,
                         setTitle = set.title,
                         subject = set.subject,
-                        question = question
+                        stemEn = question.questionEn,
+                        stemMl = question.questionMl,
+                        optionsEn = question.optionsEn(),
+                        optionsMl = question.optionsMl(),
+                        answerIndex = DeckCard.indexOfOption(question.correctOption),
+                        explanationEn = question.explanationEn,
+                        explanationMl = question.explanationMl
                     )
                 }
         }
+
+        remoteCards.forEach { remote ->
+            val card = remoteCard(remote) ?: return@forEach
+            if (seen.add(card.key)) cards += card
+        }
         return cards
+    }
+
+    /** Projects one scanned card from the second database, or null when unusable. */
+    fun remoteCard(remote: RemoteDeckCard): DeckCard? {
+        if (!REMOTE_KEY.matches(remote.key)) return null
+        if (remote.key != "scan:${remote.deckId}:${remote.cardId}") return null
+        val title = remote.deckTitle.trim().ifBlank { "Scanned deck" }
+        val stemEn = remote.stem.trim().ifBlank { remote.stemMl.trim() }
+        val stemMl = remote.stemMl.trim()
+        val answerEn = remote.answer.trim().ifBlank { remote.answerMl.trim() }
+        val answerMl = remote.answerMl.trim()
+        if (stemEn.isBlank() || answerEn.isBlank()) return null
+
+        return DeckCard(
+            key = remote.key,
+            setId = remote.deckId,
+            questionId = remote.cardId,
+            mainTopic = Topics.normalize(remote.mainTopic, title, "Scanned deck"),
+            subTopic = remote.subTopic.trim().ifBlank { title },
+            setTitle = title,
+            subject = "Scanned deck",
+            stemEn = stemEn,
+            stemMl = stemMl,
+            optionsEn = listOf(answerEn),
+            optionsMl = listOf(answerMl),
+            answerIndex = 0,
+            explanationEn = remote.explanation,
+            explanationMl = remote.explanationMl
+        )
     }
 
     fun isKnown(entry: DeckProgressEntity?): Boolean =

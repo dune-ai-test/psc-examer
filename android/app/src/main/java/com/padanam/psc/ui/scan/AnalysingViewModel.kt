@@ -40,7 +40,10 @@ data class AnalysingState(
     val suggestingTopics: Boolean = false,
     val topicNotice: String? = null,
     val savedTitle: String = "",
-    val appended: Boolean = false
+    val appended: Boolean = false,
+    val savingDeck: Boolean = false,
+    val deckSaved: Boolean = false,
+    val deckError: String? = null
 ) {
     val stageLabel: String
         get() = when (stage) {
@@ -389,6 +392,69 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /**
+     * Copies the reviewed draft into the shared scanned-deck database without
+     * touching the library. This is separate from [saveDraft] on purpose: an
+     * administrator can keep the cards for deck practice, the library, or both.
+     */
+    fun saveDraftToDeck() {
+        val snapshot = _state.value
+        val draft = snapshot.draft ?: return
+        if (snapshot.running || snapshot.savingDeck || snapshot.deckSaved) return
+
+        _state.update {
+            it.copy(savingDeck = true, deckError = null)
+        }
+
+        viewModelScope.launch {
+            try {
+                val settings = withContext(Dispatchers.IO) {
+                    container.settingsRepository.current()
+                }
+                val session = withContext(Dispatchers.IO) {
+                    container.authRepository.current()
+                } ?: throw ScanException("Sign in again to save scanned decks.")
+                if (!session.user.isAdmin) {
+                    throw ScanException("Only the administrator can save scanned decks.")
+                }
+                val base = session.serverUrl.ifBlank { settings.serverUrl }
+                if (base.isBlank()) {
+                    throw ScanException("Add the address of your Padanam site in Settings first.")
+                }
+
+                withContext(Dispatchers.IO) {
+                    container.serverApi.saveDeckCards(
+                        base,
+                        session.token,
+                        draft
+                    )
+                }
+
+                /* Refresh the local cache so the new cards are visible even if
+                   the deck library was opened moments ago. */
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val cards = container.serverApi.deckCards(base, session.token)
+                        container.deckCardStore.save(cards)
+                    }
+                }
+
+                _state.update {
+                    it.copy(savingDeck = false, deckSaved = true, deckError = null)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _state.update {
+                    it.copy(
+                        savingDeck = false,
+                        deckError = error.message ?: "Couldn't save these cards to decks."
+                    )
+                }
+            }
+        }
+    }
+
     private fun syncInBackground(settings: AppSettings, session: AuthSession) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
@@ -424,7 +490,10 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
             suggestingTopics = false,
             topicNotice = null,
             savedTitle = "",
-            appended = false
+            appended = false,
+            savingDeck = false,
+            deckSaved = false,
+            deckError = null
         )
         start()
     }
