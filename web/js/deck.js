@@ -14,6 +14,16 @@
   var drag = null;
   var SWIPE_THRESHOLD = 82;
 
+  /* Scanned cards live in an optional second Neon database. They are cached in
+     localStorage so the deck library keeps working when that database is
+     offline; progress for them syncs through the normal account workspace. */
+  var REMOTE_ENDPOINT = './api/decks';
+  var REMOTE_CACHE_KEY = 'padanam.deck.remote.v1';
+  var REMOTE_TTL = 60 * 1000;
+  var remoteCards = [];
+  var remoteLoadedAt = 0;
+  var remotePromise = null;
+
   function keyFor(setId, questionId) {
     return 'question:' + setId + ':' + questionId;
   }
@@ -23,6 +33,95 @@
       /^[a-z][a-z0-9_-]*:.+$/.test(key);
   }
 
+  function cleanRemoteText(value, max) {
+    return String(value === null || value === undefined ? '' : value)
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, max || 200);
+  }
+
+  function cleanRemoteId(value) {
+    var text = String(value === null || value === undefined ? '' : value)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '');
+    return /^[a-z0-9][a-z0-9_-]{0,60}$/.test(text) ? text : '';
+  }
+
+  function normalizeRemoteCard(item) {
+    if (!item || typeof item !== 'object') return null;
+    var deckId = cleanRemoteId(item.deckId);
+    var cardId = cleanRemoteId(item.cardId);
+    var key = String(item.key || ('scan:' + deckId + ':' + cardId)).trim();
+    if (!deckId || !cardId || !validKey(key)) return null;
+    if (key !== 'scan:' + deckId + ':' + cardId) return null;
+
+    var stem = cleanRemoteText(item.stem, 4000);
+    var stemMl = cleanRemoteText(item.stemMl, 4000);
+    var answer = cleanRemoteText(item.answer, 2000);
+    var answerMl = cleanRemoteText(item.answerMl, 2000);
+    if ((!stem && !stemMl) || (!answer && !answerMl)) return null;
+
+    return {
+      key: key,
+      deckId: deckId,
+      cardId: cardId,
+      deckTitle: cleanRemoteText(item.deckTitle, 160),
+      mainTopic: cleanRemoteText(item.mainTopic, 80),
+      subTopic: cleanRemoteText(item.subTopic, 120),
+      language: item.language === 'ml' ? 'ml' : 'en',
+      stem: stem,
+      stemMl: stemMl,
+      answer: answer,
+      answerMl: answerMl,
+      explanation: cleanRemoteText(item.explanation, 2000),
+      explanationMl: cleanRemoteText(item.explanationMl, 2000),
+      updatedAt: String(item.updatedAt || '')
+    };
+  }
+
+  function projectRemoteCard(card, lang) {
+    var useMl = lang === 'ml' && !!card.stemMl && !!card.answerMl;
+    var title = card.deckTitle || 'Scanned deck';
+    return {
+      key: card.key,
+      setId: card.deckId,
+      questionId: card.cardId,
+      mainTopic: A.normalizeMainTopic(card.mainTopic, title, 'Scanned deck'),
+      subTopic: card.subTopic || title,
+      setTitle: title,
+      subject: 'Scanned deck',
+      source: 'scan',
+      stem: useMl ? card.stemMl : (card.stem || card.stemMl),
+      answer: useMl ? card.answerMl : (card.answer || card.answerMl),
+      explanation: useMl
+        ? (card.explanationMl || card.explanation)
+        : (card.explanation || card.explanationMl),
+      lang: useMl ? 'ml' : 'en'
+    };
+  }
+
+  function readRemoteCache() {
+    try {
+      var raw = window.localStorage.getItem(REMOTE_CACHE_KEY);
+      var list = raw ? JSON.parse(raw) : [];
+      remoteCards = Array.isArray(list) ? list.map(normalizeRemoteCard).filter(Boolean) : [];
+    } catch (err) {
+      remoteCards = [];
+    }
+  }
+
+  function writeRemoteCache() {
+    try {
+      window.localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(remoteCards));
+    } catch (err) {
+      /* Private browsing can reject writes; the in-memory copy still works. */
+    }
+  }
+
+  readRemoteCache();
+
   function deckLanguage() {
     return A.state.profile.language === 'ml' ? 'ml' : 'en';
   }
@@ -30,12 +129,20 @@
   function allCards() {
     var lang = deckLanguage();
     var cards = [];
+    var seen = {};
+
+    function add(card) {
+      if (!card || seen[card.key]) return;
+      seen[card.key] = true;
+      cards.push(card);
+    }
+
     (A.state.sets || []).forEach(function (set) {
       var mainTopic = A.mainTopicFor(set);
       var subTopic = A.subTopicFor(set);
       (set.questions || []).forEach(function (question) {
         var view = A.questionFor(question, lang);
-        cards.push({
+        add({
           key: keyFor(set.id, question.id),
           setId: set.id,
           questionId: question.id,
@@ -50,6 +157,10 @@
           lang: view.lang
         });
       });
+    });
+
+    remoteCards.forEach(function (card) {
+      add(projectRemoteCard(card, lang));
     });
     return cards;
   }
@@ -407,6 +518,93 @@
     });
   }
 
+  function authReady() {
+    return !!(A.auth && A.auth.isAccount && A.auth.isAccount() && A.auth.token && A.auth.token());
+  }
+
+  function loadRemote(force) {
+    if (!authReady()) return Promise.resolve(remoteCards);
+    if (!force && remoteLoadedAt && Date.now() - remoteLoadedAt < REMOTE_TTL) {
+      return Promise.resolve(remoteCards);
+    }
+    if (remotePromise) return remotePromise;
+
+    var token = A.auth.token();
+    remotePromise = fetch(REMOTE_ENDPOINT, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Authorization: 'Bearer ' + token
+      },
+      cache: 'no-store'
+    }).then(function (response) {
+      return response.text().then(function (text) {
+        var data = null;
+        try { data = text ? JSON.parse(text) : null; } catch (err) { data = null; }
+        if (!data || typeof data !== 'object') {
+          throw new Error('The deck server returned an unexpected response.');
+        }
+        if (!response.ok || data.error) {
+          throw new Error(data.error || 'Could not load scanned decks.');
+        }
+        return data;
+      });
+    }).then(function (data) {
+      remoteCards = Array.isArray(data.cards)
+        ? data.cards.map(normalizeRemoteCard).filter(Boolean)
+        : [];
+      remoteLoadedAt = Date.now();
+      writeRemoteCache();
+      if (A.refresh) A.refresh();
+      return remoteCards;
+    }).catch(function (err) {
+      if (window.console && console.warn) {
+        console.warn('Padanam scanned decks are unavailable', err);
+      }
+      return remoteCards;
+    }).finally(function () {
+      remotePromise = null;
+    });
+    return remotePromise;
+  }
+
+  function saveScan(draft) {
+    if (!authReady()) {
+      return Promise.reject(new Error('Sign in to save scanned decks.'));
+    }
+    var questions = (draft && draft.questions ? draft.questions : []).map(function (question) {
+      var en = A.questionFor(question, 'en');
+      var ml = A.questionFor(question, 'ml');
+      var answerEn = en.options[question.answer] || '';
+      var answerMl = ml.options[question.answer] || '';
+      return {
+        stem: en.stem || ml.stem,
+        answer: answerEn || answerMl,
+        explanation: en.explanation || '',
+        stemMl: question.ml ? ml.stem : '',
+        answerMl: question.ml ? answerMl : '',
+        explanationMl: question.ml ? (ml.explanation || '') : ''
+      };
+    }).filter(function (question) {
+      return !!question.stem && !!question.answer;
+    });
+
+    if (!questions.length) {
+      return Promise.reject(new Error('There are no complete cards to save.'));
+    }
+
+    return A.auth.api(REMOTE_ENDPOINT, {
+      action: 'save',
+      title: draft.title || 'Scanned deck',
+      mainTopic: draft.mainTopic || '',
+      subTopic: draft.subTopic || '',
+      language: 'both',
+      questions: questions
+    }).then(function (data) {
+      return loadRemote(true).then(function () { return data; });
+    });
+  }
+
   function resetDrag() {
     if (!drag) return;
     var card = drag.card;
@@ -503,6 +701,9 @@
     isRevealed: isRevealed,
     continueInfo: continueInfo,
     home: home,
+    loadRemote: loadRemote,
+    saveScan: saveScan,
+    remoteCount: function () { return remoteCards.length; },
     showGuide: function () { showGuide(true); },
     mount: function () {
       if (document.querySelector('[data-deck-card]')) showGuide(false);

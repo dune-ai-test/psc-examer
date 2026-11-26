@@ -317,6 +317,11 @@
 
     current = route;
     current.view = view;
+    if (A.deck && typeof A.deck.loadRemote === 'function' &&
+        (view.name === 'home' || view.name === 'decks' ||
+          view.name === 'deckTopic' || view.name === 'deckSession')) {
+      A.deck.loadRemote();
+    }
     viewEl.innerHTML = view.html;
 
     var focusedExam = view.name === 'exam' && !!A.state.activeExam;
@@ -1365,6 +1370,11 @@
   actions['scan-save'] = function (btn) {
     if (!requireAdmin()) return;
     views.scanSave(btn.getAttribute('data-start') === '1');
+  };
+
+  actions['scan-save-deck'] = function () {
+    if (!requireAdmin()) return;
+    views.scanSaveDeck();
   };
 
   actions['scan-discard'] = function () {

@@ -21,6 +21,8 @@
     images: [],
     busy: false,
     adding: 0,
+    savingDeck: false,
+    deckSaved: false,
     result: null,
     error: '',
     stage: '',
@@ -1448,8 +1450,17 @@
       '<div class="scan-result-actions">' +
         '<button type="button" class="btn btn-primary" data-action="scan-save">' + icon('book') + (target ? ' Add to this set' : ' Save to library') + '</button>' +
         '<button type="button" class="btn btn-ghost" data-action="scan-save" data-start="1">' + icon('play') + (target ? ' Add & start test' : ' Save & start test') + '</button>' +
+        (A.auth && A.auth.isAccount() && A.auth.isAdmin()
+          ? '<button type="button" class="btn btn-soft" data-action="scan-save-deck"' +
+              (scan.savingDeck || scan.deckSaved ? ' disabled' : '') + '>' +
+              icon('layers') + ' ' +
+              (scan.savingDeck ? 'Saving to decks…' : scan.deckSaved ? 'Saved to decks' : 'Save to decks') +
+            '</button>'
+          : '') +
         '<button type="button" class="btn btn-subtle" data-action="scan-discard">' + icon('trash') + ' Discard</button>' +
       '</div>' +
+      '<p class="field-hint" style="margin-top:8px">Saving to decks writes these cards to the separate deck database. ' +
+        'Your library and this draft stay unchanged.</p>' +
     '</section>';
   };
 
@@ -1554,6 +1565,8 @@
     scan.busy = true;
     scan.error = '';
     scan.result = null;
+    scan.savingDeck = false;
+    scan.deckSaved = false;
     scan.stage = 'reading';
     scan.progress = 0.05;
     A.refresh();
@@ -1623,6 +1636,41 @@
     }
   };
 
+  views.scanSaveDeck = function () {
+    if (!scan.result || scan.busy || scan.savingDeck || scan.deckSaved) return;
+    if (!A.deck || typeof A.deck.saveScan !== 'function') {
+      A.toast({
+        title: 'Decks are not available',
+        message: 'Reload the app, then try saving this draft to decks again.',
+        kind: 'error'
+      });
+      return;
+    }
+
+    scan.savingDeck = true;
+    views.updateScanRunner();
+
+    A.deck.saveScan(scan.result).then(function (data) {
+      scan.savingDeck = false;
+      scan.deckSaved = true;
+      views.updateScanRunner();
+      A.toast({
+        title: 'Saved to decks',
+        message: (Number(data && data.saved) || scan.result.questions.length) +
+          ' cards added to the scanned deck library.',
+        kind: 'success'
+      });
+    }).catch(function (err) {
+      scan.savingDeck = false;
+      views.updateScanRunner();
+      A.toast({
+        title: 'Deck save failed',
+        message: err && err.message ? err.message : 'Please try again.',
+        kind: 'error'
+      });
+    });
+  };
+
   views.scanSave = function (start) {
     if (!scan.result || scan.busy) return;
     var target = scanTargetSet();
@@ -1667,6 +1715,8 @@
     scan.images = [];
     scan.busy = false;
     scan.adding = 0;
+    scan.savingDeck = false;
+    scan.deckSaved = false;
     scan.result = null;
     scan.error = '';
     scan.stage = '';
@@ -1690,6 +1740,8 @@
     scan.images = [];
     scan.busy = false;
     scan.adding = 0;
+    scan.savingDeck = false;
+    scan.deckSaved = false;
     scan.result = null;
     scan.error = '';
     scan.stage = '';

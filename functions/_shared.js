@@ -19,28 +19,28 @@ const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/;
 const RESERVED_USERNAMES = ['admin', 'administrator', 'local', 'owner', 'root', 'system', 'padanam'];
 
 /* ── Configuration ─────────────────────────────────────── */
-export function databaseConfig(env) {
-  const connectionString = String((env && env.NEON_CONNECTION_STRING) || '').trim();
-  const rawEndpoint = String((env && env.NEON_HTTP_ENDPOINT) || '').trim();
+function neonConfig(env, connectionName, endpointName) {
+  const connectionString = String((env && env[connectionName]) || '').trim();
+  const rawEndpoint = String((env && env[endpointName]) || '').trim();
 
   let endpoint = '';
   let host = '';
   let error = '';
 
   if (!connectionString) {
-    error = 'Set the NEON_CONNECTION_STRING secret in Cloudflare Pages.';
+    error = 'Set the ' + connectionName + ' secret in Cloudflare Pages.';
   } else {
     try {
       const url = new URL(connectionString);
       if (url.protocol !== 'postgres:' && url.protocol !== 'postgresql:') {
-        throw new Error('NEON_CONNECTION_STRING must start with postgres:// or postgresql://.');
+        throw new Error(connectionName + ' must start with postgres:// or postgresql://.');
       }
       host = url.hostname;
-      endpoint = rawEndpoint ? normalizeEndpoint(rawEndpoint) : deriveEndpoint(host);
+      endpoint = rawEndpoint ? normalizeEndpoint(rawEndpoint, endpointName) : deriveEndpoint(host);
     } catch (err) {
       error = /must start with/.test(err && err.message ? err.message : '')
         ? err.message
-        : 'NEON_CONNECTION_STRING must be a valid postgres:// or postgresql:// connection string.';
+        : connectionName + ' must be a valid postgres:// or postgresql:// connection string.';
     }
   }
 
@@ -51,6 +51,26 @@ export function databaseConfig(env) {
     error,
     configured: !!connectionString && !error && !!endpoint
   };
+}
+
+export function databaseConfig(env) {
+  return neonConfig(env, 'NEON_CONNECTION_STRING', 'NEON_HTTP_ENDPOINT');
+}
+
+/**
+ * Optional second Neon database for scanned swipe-deck cards. When it is not
+ * configured the main library still feeds decks, so this stays opt-in.
+ */
+export function deckDatabaseConfig(env) {
+  const config = neonConfig(env, 'DECK_NEON_CONNECTION_STRING', 'DECK_NEON_HTTP_ENDPOINT');
+  if (!config.connectionString) {
+    return Object.assign({}, config, {
+      configured: false,
+      error: '',
+      optional: true
+    });
+  }
+  return config;
 }
 
 export function authConfig(env) {
@@ -104,15 +124,16 @@ function deriveEndpoint(hostname) {
   return 'https://' + host + '/sql';
 }
 
-function normalizeEndpoint(value) {
+function normalizeEndpoint(value, endpointName) {
+  const label = endpointName || 'NEON_HTTP_ENDPOINT';
   let url;
   try {
     url = new URL(value);
   } catch (err) {
-    throw new Error('NEON_HTTP_ENDPOINT is not a valid URL.');
+    throw new Error(label + ' is not a valid URL.');
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new Error('NEON_HTTP_ENDPOINT must start with https:// or http://.');
+    throw new Error(label + ' must start with https:// or http://.');
   }
   if (!/\/sql$/i.test(url.pathname.replace(/\/+$/, ''))) {
     url.pathname = url.pathname.replace(/\/+$/, '') + '/sql';
@@ -183,6 +204,34 @@ export async function ensureSchema(config) {
     throw err;
   });
   return schemaReady;
+}
+
+/**
+ * Schema for the optional scanned-deck database. It holds only deck cards, so
+ * it can live in a different Neon project from the account library.
+ */
+let deckSchemaReady = null;
+
+export async function ensureDeckSchema(config) {
+  if (deckSchemaReady) return deckSchemaReady;
+  deckSchemaReady = neonBatch(config, [
+    {
+      query: 'CREATE TABLE IF NOT EXISTS padanam_deck_cards (' +
+        'deck_id TEXT NOT NULL, card_id TEXT NOT NULL, ' +
+        'main_topic TEXT NOT NULL DEFAULT \'\', sub_topic TEXT NOT NULL DEFAULT \'\', ' +
+        'language TEXT NOT NULL DEFAULT \'en\', stem TEXT NOT NULL, answer TEXT NOT NULL, ' +
+        'explanation TEXT NOT NULL DEFAULT \'\', updated_ms BIGINT NOT NULL, ' +
+        'payload JSONB NOT NULL DEFAULT \'{}\'::jsonb, PRIMARY KEY (deck_id, card_id))'
+    },
+    {
+      query: 'CREATE INDEX IF NOT EXISTS padanam_deck_cards_updated_idx ' +
+        'ON padanam_deck_cards (updated_ms DESC)'
+    }
+  ]).catch(function (err) {
+    deckSchemaReady = null;
+    throw err;
+  });
+  return deckSchemaReady;
 }
 
 /* ── Neon client ───────────────────────────────────────── */

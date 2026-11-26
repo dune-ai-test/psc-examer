@@ -67,6 +67,32 @@ reset button for the bootstrap admin — to change that password, update the Pag
 secret and redeploy. Learner passwords can be reset from **Admin console →
 Accounts**. To revoke a learner, remove their row from the `padanam_users` table.
 
+### Scanned deck database (optional)
+
+Decks normally combine every question in the library. You can also keep a
+separate, shared pool of scanned deck cards in a second Neon database. This is
+optional: without these secrets, decks still work from the library alone.
+
+| Name | Value | Secret? |
+| --- | --- | --- |
+| `DECK_NEON_CONNECTION_STRING` | the pooled connection string of the deck database | **yes** |
+| `DECK_NEON_HTTP_ENDPOINT` | optional custom Neon SQL endpoint | no |
+
+The deck database contains only scanned deck cards. The server creates its
+table automatically:
+
+- `padanam_deck_cards` stores `deck_id`, `card_id`, `main_topic`, `sub_topic`,
+  `language`, `stem`, `answer`, `explanation`, `updated_ms` and a small JSONB
+  payload with the Malayalam fields and deck title.
+
+The administrator can press **Save to decks** after a scan. That writes the
+extracted cards to this database without changing the library or the draft.
+Signed-in users on the web and Android then see those cards in the deck
+library alongside their assigned sets. Card progress still syncs through the
+normal account workspace under `scan:<deckId>:<cardId>` keys. The connection
+string and endpoint are read only by the Pages Function and are never sent to
+the browser or the APK.
+
 ### Gemini through Pages
 
 | Name | Value | Secret? |
@@ -172,6 +198,9 @@ are created on the first request:
 - `padanam_profile` holds profile, profile timestamp, attempts-cleared timestamp
   and the sync epoch.
 - `padanam_tombstones` records set and attempt revisions used during merges.
+- `padanam_deck_progress` holds learned swipe-deck card states per workspace.
+- `padanam_deck_cards` lives in the optional second deck database and holds only
+  scanned deck cards.
 
 Normal sync pulls, merges by id and timestamp, then pushes upserts. An admin
 backup import replaces the cloud copy authoritatively. The service worker
@@ -186,16 +215,23 @@ bypasses `/api/*`, so account and sync requests always reach the network.
   to Gemini, a custom OpenAI-compatible endpoint, or the optional Cloudflare
   Pages proxy. Nothing is saved until you choose **Create a new set** or
   **Save into** an existing set; appending keeps that set’s title, subject and
-  previous questions. Until the selected provider is configured, the sample
-  extraction demonstrates the flow. **Fetch models** loads the live catalog from
-  Gemini, the custom endpoint’s `/models` route, or the Pages `/api/models`
-  Function.
+  previous questions. The administrator can also press **Save to decks** to
+  copy the draft into the separate scanned deck pool. Until the selected
+  provider is configured, the sample extraction demonstrates the flow.
+  **Fetch models** loads the live catalog from Gemini, the custom endpoint’s
+  `/models` route, or the Pages `/api/models` Function.
 - **Exams** — timed mocks with an absolute deadline (the timer keeps running if
   you leave), untimed practice, question palette, flags, keyboard shortcuts and
   auto-submit at expiry. Attempts store question snapshots, so past results are
   reviewable even if the set later changes.
 - **Progress** — score trend, streaks, subject accuracy and attempt history,
   calculated from attempts saved to the account.
+- **Decks** — one question and one answer at a time, grouped by the same main
+  topic and subtopic as the library. Cards can come from assigned sets and from
+  an optional shared pool of scanned deck cards. Swipe or use the buttons to
+  sort **Known** and **Again**, undo the last swipe, review the missed pile, or
+  shuffle another round. Learned state syncs through the account; the current
+  round stays on this device.
 - **Accounts** — administrator-created users, account-scoped local storage and
   Neon sync behind the login gate. Sessions survive reloads for 7 days and an
   offline browser can keep studying its cached copy.
@@ -255,6 +291,7 @@ js/gemini.js             image compression and AI provider clients
 js/sync.js               Neon sync client, merge, tombstones and auto-sync
 js/auth.js               account probe, login/logout and session storage
 js/admin.js              admin API client for accounts, passwords and assignment
+js/deck.js               deck cards, rounds, swipe progress and scanned deck cache
 js/views.js              all page markup, including login and admin
 js/app.js                router, auth gates, actions, forms and startup
 assets/                  logo, favicon and self-hosted OFL fonts
@@ -263,6 +300,7 @@ _routes.json             limits Pages Functions to /api/* requests
 ../functions/api/auth.js Pages Function; login, session, logout and status
 ../functions/api/admin.js Pages Function; create users, reset passwords, assign sets
 ../functions/api/sync.js Pages Function; account/legacy Neon sync
+../functions/api/decks.js Pages Function; scanned deck card read and save
 ../functions/api/scan.js Pages Function; reads scan keys from Pages secrets
 ```
 
@@ -284,3 +322,7 @@ server-side. Photos are never added to the library or uploaded to Neon.
 
 AI keys, scan photos, the session token and the fetched model catalog are never
 included in backups or sync payloads.
+
+Scanned deck cards saved through **Save to decks** are stored in the optional
+second Neon database and are visible to every signed-in account. Their learned
+state is ordinary deck progress and syncs through the account workspace.
