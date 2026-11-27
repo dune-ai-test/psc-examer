@@ -71,6 +71,34 @@ data class AiOption(
     @SerialName("text_ml") val textMl: String = ""
 )
 
+/** The two scan targets: a four-option set, or one-question/one-answer cards. */
+object ScanMode {
+    const val SET = "set"
+    const val DECK = "deck"
+
+    fun normalize(value: String?): String = if (value == DECK) DECK else SET
+}
+
+/** Raw structured output for a deck scan: one question and one answer per card. */
+@Serializable
+data class AiDeckScanResult(
+    val title: String = "",
+    val subject: String = "General",
+    val mainTopic: String = "",
+    val subTopic: String = "",
+    val cards: List<AiDeckCard> = emptyList()
+)
+
+@Serializable
+data class AiDeckCard(
+    @SerialName("question_en") val questionEn: String = "",
+    @SerialName("question_ml") val questionMl: String = "",
+    @SerialName("answer_en") val answerEn: String = "",
+    @SerialName("answer_ml") val answerMl: String = "",
+    @SerialName("explanation_en") val explanationEn: String = "",
+    @SerialName("explanation_ml") val explanationMl: String = ""
+)
+
 /**
  * A self-contained snapshot of one answered question. Keeping the text and
  * explanation inside the attempt means old results remain reviewable even if

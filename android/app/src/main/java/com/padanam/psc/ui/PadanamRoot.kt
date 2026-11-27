@@ -31,6 +31,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.padanam.psc.AppContainer
 import com.padanam.psc.data.model.QuizMode
+import com.padanam.psc.data.model.ScanMode
 import com.padanam.psc.data.model.ViewMode
 import com.padanam.psc.ui.admin.AdminScreen
 import com.padanam.psc.ui.accounts.AccountsScreen
@@ -66,7 +67,7 @@ object Routes {
     const val ACCOUNTS = "accounts"
     const val ADD_ACCOUNT = "addaccount"
     const val ADMIN = "admin"
-    const val SCAN = "scan"
+    const val SCAN = "scan?gallery={gallery}&mode={mode}"
     const val ANALYSING = "analysing"
     const val QUIZ = "quiz"
     const val SET = "set/{setId}"
@@ -82,7 +83,8 @@ object Routes {
     fun deckTopic(topic: String) = "decktopic?topic=${Uri.encode(topic)}"
     fun deckStudy(topic: String, sub: String = "") =
         "deckstudy?topic=${Uri.encode(topic)}&sub=${Uri.encode(sub)}"
-    fun scan(gallery: Boolean = false) = "$SCAN?gallery=$gallery"
+    fun scan(gallery: Boolean = false, mode: String = ScanMode.SET) =
+        "scan?gallery=$gallery&mode=$mode"
     fun scanResult(setId: String, appended: Boolean = false, added: Int = 0) =
         "scanresult/$setId?appended=$appended&added=$added"
     fun examSetup(setId: String, mode: String) = "examsetup/$setId?mode=$mode"
@@ -175,12 +177,12 @@ private fun SignedInRoot(
         }
     }
 
-    fun openScan(gallery: Boolean = false) {
+    fun openScan(gallery: Boolean = false, mode: String = ScanMode.SET) {
         if (!admin) {
             appVm.emit(UiEvent("Only the administrator can scan pages.", error = true))
             return
         }
-        navController.navigate(Routes.scan(gallery))
+        navController.navigate(Routes.scan(gallery, mode))
     }
 
     Scaffold(
@@ -316,6 +318,8 @@ private fun SignedInRoot(
             composable(Routes.DECKS) {
                 DeckLibraryScreen(
                     appVm = appVm,
+                    canScan = admin,
+                    onScanDeck = { openScan(mode = ScanMode.DECK) },
                     onBack = { navController.popBackStack() },
                     onOpenLibrary = { navigateTab(Routes.LIBRARY) },
                     onOpenTopic = { navController.navigate(Routes.deckTopic(it)) },
@@ -432,17 +436,22 @@ private fun SignedInRoot(
             }
 
             composable(
-                route = "${Routes.SCAN}?gallery={gallery}",
+                route = Routes.SCAN,
                 arguments = listOf(
                     navArgument("gallery") {
                         type = NavType.BoolType
                         defaultValue = false
+                    },
+                    navArgument("mode") {
+                        type = NavType.StringType
+                        defaultValue = ScanMode.SET
                     }
                 )
             ) { entry ->
                 ScanCameraScreen(
                     container = container,
                     openGalleryOnStart = entry.arguments?.getBoolean("gallery") == true,
+                    initialMode = entry.arguments?.getString("mode").orEmpty(),
                     onClose = { navController.popBackStack() },
                     onImagesReady = { navController.navigate(Routes.ANALYSING) }
                 )

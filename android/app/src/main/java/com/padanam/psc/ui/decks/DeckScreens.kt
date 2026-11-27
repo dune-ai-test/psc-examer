@@ -34,6 +34,7 @@ import androidx.compose.material.icons.rounded.HelpOutline
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Undo
@@ -122,6 +123,8 @@ private fun pad(value: Int): String = value.toString().padStart(2, '0')
 @Composable
 fun DeckLibraryScreen(
     appVm: AppViewModel,
+    canScan: Boolean = false,
+    onScanDeck: () -> Unit = {},
     onBack: () -> Unit,
     onOpenLibrary: () -> Unit,
     onOpenTopic: (String) -> Unit,
@@ -150,6 +153,9 @@ fun DeckLibraryScreen(
             title = "Deck library",
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
             actions = {
+                if (canScan) {
+                    CircleAction(Icons.Rounded.PhotoCamera, "Scan deck cards", onScanDeck)
+                }
                 CircleAction(Icons.Rounded.MenuBook, "Question library", onOpenLibrary)
                 CircleAction(Icons.Rounded.Close, "Close decks", onBack)
             }
@@ -174,6 +180,15 @@ fun DeckLibraryScreen(
                         onPrimary = onOpenLibrary,
                         primaryIcon = Icons.Rounded.MenuBook
                     )
+                }
+                if (canScan) {
+                    item {
+                        LightButton(
+                            text = "Scan deck cards",
+                            onClick = onScanDeck,
+                            icon = Icons.Rounded.PhotoCamera
+                        )
+                    }
                 }
             } else {
                 item {
@@ -237,8 +252,8 @@ fun DeckLibraryScreen(
                 item {
                     InfoNote(
                         text = "Deck cards use the correct option and explanation from each " +
-                            "question. Your place in a round stays on this phone; learned cards " +
-                            "sync with your account.",
+                            "question, or the answer saved with a scanned card. Your place in a " +
+                            "round stays on this phone; learned cards sync with your account.",
                         icon = Icons.Rounded.Layers
                     )
                 }

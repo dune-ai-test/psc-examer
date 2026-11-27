@@ -1,5 +1,7 @@
 package com.padanam.psc.data.remote
 
+import com.padanam.psc.data.model.AiDeckCard
+import com.padanam.psc.data.model.AiDeckScanResult
 import com.padanam.psc.data.model.AiOption
 import com.padanam.psc.data.model.AiQuestion
 import com.padanam.psc.data.model.AiScanResult
@@ -55,6 +57,45 @@ class ScanRepository(private val serverApi: ServerApi) {
         }
 
         validate(decoded)
+    }
+
+    /**
+     * Deck scans ask for one question and one answer per card, not four options.
+     * Plain Q&A sheets work; a marked MCQ paper contributes the correct option
+     * text as the answer.
+     */
+    suspend fun extractCards(
+        baseUrl: String,
+        token: String,
+        images: List<ScanImage>
+    ): AiDeckScanResult = withContext(Dispatchers.IO) {
+        if (images.isEmpty()) throw ScanException("Add at least one photograph to scan.")
+        if (images.size > MAX_IMAGES) {
+            throw ScanException("You can analyse up to $MAX_IMAGES photographs at once.")
+        }
+        if (token.isBlank()) throw ScanException("Sign in again to scan cards.")
+
+        val text = try {
+            serverApi.scan(
+                baseUrl = baseUrl,
+                token = token,
+                prompt = buildDeckPrompt(images.size),
+                images = images
+            )
+        } catch (error: ServerException) {
+            throw ScanException(error.message ?: "The scanning service could not be reached.", error)
+        }
+
+        val json = stripCodeFence(text)
+        val decoded = try {
+            AppJson.decodeFromString(AiDeckScanResult.serializer(), json)
+        } catch (error: SerializationException) {
+            throw ScanException("The scanner's answer wasn't valid card JSON. Please scan again.", error)
+        } catch (error: IllegalArgumentException) {
+            throw ScanException("The scanner's answer wasn't valid card JSON. Please scan again.", error)
+        }
+
+        validateCards(decoded)
     }
 
     private fun buildPrompt(count: Int): String = buildString {
@@ -152,6 +193,68 @@ class ScanRepository(private val serverApi: ServerApi) {
         )
     }
 
+    private fun buildDeckPrompt(count: Int): String = buildString {
+        append(DECK_SYSTEM_PROMPT)
+        append("\n\nExtract every question-and-answer card visible in these ")
+        append(count)
+        append(" image")
+        if (count != 1) append("s")
+        append(". If two photographs overlap, return each card once.\n\n")
+        append("Return only a JSON object with this exact shape:\n")
+        append("{\"title\":\"Short page title\",\"subject\":\"Broad subject\",")
+        append("\"mainTopic\":\"One exact main topic from the fixed list\",")
+        append("\"subTopic\":\"Short grouping label\",\"cards\":[")
+        append("{\"question_en\":\"...\",\"question_ml\":\"...\",")
+        append("\"answer_en\":\"...\",\"answer_ml\":\"...\",")
+        append("\"explanation_en\":\"...\",\"explanation_ml\":\"...\"}]}\n")
+        append("Choose mainTopic from this fixed list, exactly as written: ")
+        append(Topics.MAIN.joinToString("; "))
+        append(".\n")
+        append("subTopic is a reusable grouping label of two to six words for the deck, ")
+        append("for example a paper family or chapter name. Do not use card numbers.\n")
+        append("Never return options or an answer index. Do not wrap the JSON in markdown.")
+    }
+
+    private fun validateCards(raw: AiDeckScanResult): AiDeckScanResult {
+        val seen = mutableSetOf<String>()
+        val cards = raw.cards.mapNotNull { card ->
+            val questionEn = card.questionEn.clean()
+            val questionMl = card.questionMl.clean()
+            val answerEn = card.answerEn.clean()
+            val answerMl = card.answerMl.clean()
+            val question = questionEn.ifBlank { questionMl }
+            val answer = answerEn.ifBlank { answerMl }
+            if (question.isBlank() || answer.isBlank()) return@mapNotNull null
+            if (!seen.add(question.lowercase())) return@mapNotNull null
+
+            AiDeckCard(
+                questionEn = questionEn.ifBlank { questionMl },
+                questionMl = questionMl,
+                answerEn = answerEn.ifBlank { answerMl },
+                answerMl = answerMl,
+                explanationEn = card.explanationEn.clean().ifBlank { card.explanationMl.clean() },
+                explanationMl = card.explanationMl.clean()
+            )
+        }
+
+        if (cards.isEmpty()) {
+            throw ScanException(
+                "No complete question-and-answer cards were found. Make sure both the question and the answer are visible and in focus."
+            )
+        }
+
+        val cleanTitle = raw.title.clean().ifBlank { "Scanned deck" }.take(80)
+        val cleanSubject = raw.subject.clean().ifBlank { "General" }.take(40)
+
+        return AiDeckScanResult(
+            title = cleanTitle,
+            subject = cleanSubject,
+            mainTopic = Topics.normalize(raw.mainTopic.clean(), cleanTitle, cleanSubject),
+            subTopic = Topics.subTopic(raw.subTopic.clean(), cleanTitle),
+            cards = cards
+        )
+    }
+
     private fun String.clean(): String = trim()
         .replace(Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]"), "")
         .replace(Regex("[ \\t]+"), " ")
@@ -206,6 +309,41 @@ class ScanRepository(private val serverApi: ServerApi) {
                instructions and standalone answer explanations.
             10. If nothing is legible, return an empty questions array. Never make up
                 questions that are not in the image.
+        """.trimIndent()
+
+        private val DECK_SYSTEM_PROMPT = """
+            You are Padanam's study-card extraction service for Kerala PSC aspirants.
+            You read photographs of revision sheets, question-and-answer lists and
+            question papers, and return every visible card exactly once.
+
+            Extraction rules:
+            1. Each card has one question and one answer. Never return a list of
+               options, option letters or an answer index.
+            2. If the page prints multiple-choice questions, use the text of the
+               correct or marked option as the answer. Do not copy the other options.
+            3. If the page is a question-and-answer sheet, use the printed answer. If
+               no answer is printed, use your subject knowledge and give the correct
+               answer.
+            4. Keep the answer as short as possible while still complete: a name,
+               date, term, number or one short sentence.
+            5. Provide both question_en/answer_en and question_ml/answer_ml. If the
+               printed card is in English, translate it naturally into Malayalam. If
+               it is in Malayalam, put the original in the _ml fields and translate it
+               into English. Never leave both empty. Use Malayalam script, not
+               transliteration.
+            6. explanation_en and explanation_ml explain why the answer is correct in
+               one or two short sentences, in both languages. An empty string is fine.
+            7. subject is the broad subject such as Biology, Physics, Chemistry,
+               Mathematics, History, Geography, Malayalam or General Knowledge.
+               mainTopic is the deck-wide classification and must be one of the fixed
+               values supplied in the user prompt; never invent a new one.
+               subTopic is a short reusable grouping label for the whole deck.
+            8. title is a short human title for the page, for example
+               "Kerala Geography — Quick Cards". Reuse a printed header when present.
+            9. Skip cards that are cut off, have no clear question or have no answer.
+               Ignore page numbers, instructions and standalone answer explanations.
+            10. If nothing is legible, return an empty cards array. Never make up
+                cards that are not in the image.
         """.trimIndent()
     }
 }

@@ -5,8 +5,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.padanam.psc.AppContainer
 import com.padanam.psc.data.auth.AuthSession
+import com.padanam.psc.data.model.AiDeckScanResult
 import com.padanam.psc.data.model.AiScanResult
 import com.padanam.psc.data.model.ScanDestination
+import com.padanam.psc.data.model.ScanMode
 import com.padanam.psc.data.model.TopicSuggestion
 import com.padanam.psc.data.model.Topics
 import com.padanam.psc.data.prefs.AppSettings
@@ -28,6 +30,7 @@ import kotlinx.coroutines.withContext
 
 data class AnalysingState(
     val images: List<PreparedImage> = emptyList(),
+    val mode: String = ScanMode.SET,
     val stage: String = "UPLOADING",
     val progress: Int = 0,
     val error: String? = null,
@@ -35,6 +38,7 @@ data class AnalysingState(
     val setId: String? = null,
     val questionCount: Int = 0,
     val draft: AiScanResult? = null,
+    val deckDraft: AiDeckScanResult? = null,
     val destinations: List<ScanDestination> = emptyList(),
     val targetSetId: String? = null,
     val suggestingTopics: Boolean = false,
@@ -45,11 +49,13 @@ data class AnalysingState(
     val deckSaved: Boolean = false,
     val deckError: String? = null
 ) {
+    val isDeck: Boolean get() = mode == ScanMode.DECK
+
     val stageLabel: String
         get() = when (stage) {
             "UPLOADING" -> "UPLOADING IMAGE"
             "READING" -> "READING TEXT"
-            "MATCHING" -> "MATCHING OPTIONS"
+            "MATCHING" -> if (isDeck) "CHECKING ANSWERS" else "MATCHING OPTIONS"
             "REVIEW" -> "READY TO SAVE"
             "SAVING" -> "SAVING TO DATABASE"
             "DONE" -> "READY"
@@ -60,9 +66,21 @@ data class AnalysingState(
     val note: String
         get() = when (stage) {
             "UPLOADING" -> "Preparing a compact copy of your photograph"
-            "READING" -> "The scanner is reading the question and every option"
-            "MATCHING" -> "Aligning English and Malayalam, then checking the answer"
-            "REVIEW" -> "Check the draft, then choose where the questions should go"
+            "READING" -> if (isDeck) {
+                "The scanner is reading each question and its answer"
+            } else {
+                "The scanner is reading the question and every option"
+            }
+            "MATCHING" -> if (isDeck) {
+                "Aligning English and Malayalam, then checking each answer"
+            } else {
+                "Aligning English and Malayalam, then checking the answer"
+            }
+            "REVIEW" -> if (isDeck) {
+                "Check the cards, then save them to the shared deck library"
+            } else {
+                "Check the draft, then choose where the questions should go"
+            }
             "SAVING" -> "Writing the reviewed questions into your library"
             "DONE" -> "Saved. Opening the scan result…"
             "ERROR" -> error ?: "Something interrupted the scan."
@@ -76,7 +94,10 @@ data class AnalysingState(
 class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
 
     private val _state = MutableStateFlow(
-        AnalysingState(images = container.scanSession.images.value)
+        AnalysingState(
+            images = container.scanSession.images.value,
+            mode = container.scanSession.mode.value
+        )
     )
     val state = _state.asStateFlow()
 
@@ -90,6 +111,7 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
         started = true
 
         val images = container.scanSession.images.value
+        val mode = container.scanSession.mode.value
         if (images.isEmpty()) {
             _state.update {
                 it.copy(
@@ -105,6 +127,7 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
         _state.update {
             it.copy(
                 images = images,
+                mode = mode,
                 stage = "UPLOADING",
                 progress = 2,
                 error = null,
@@ -142,9 +165,9 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
                     throw ScanException("Add the Padanam site address in Settings, then scan again.")
                 }
                 val session = withContext(Dispatchers.IO) { container.authRepository.current() }
-                    ?: throw ScanException("Sign in again to scan questions.")
+                    ?: throw ScanException("Sign in again to scan pages.")
                 if (!session.user.isAdmin) {
-                    throw ScanException("Only the administrator can scan questions.")
+                    throw ScanException("Only the administrator can scan pages.")
                 }
 
                 val payload = withContext(Dispatchers.IO) {
@@ -160,37 +183,70 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
                     it.copy(stage = "READING", progress = it.progress.coerceAtLeast(38))
                 }
 
-                val result = container.scanRepository.extractQuestions(
-                    baseUrl = settings.serverUrl,
-                    token = session.token,
-                    images = payload
-                )
-
-                _state.update {
-                    it.copy(stage = "MATCHING", progress = it.progress.coerceAtLeast(68))
-                }
-
-                if (result.questions.isEmpty()) {
-                    throw ScanException(
-                        "No questions were found in these pages. Use a sharper photo and try again."
+                if (mode == ScanMode.DECK) {
+                    val result = container.scanRepository.extractCards(
+                        baseUrl = settings.serverUrl,
+                        token = session.token,
+                        images = payload
                     )
-                }
 
-                val destinations = withContext(Dispatchers.IO) {
-                    container.libraryRepository.scanDestinations()
-                }
+                    _state.update {
+                        it.copy(stage = "MATCHING", progress = it.progress.coerceAtLeast(68))
+                    }
 
-                _state.update {
-                    it.copy(
-                        stage = "REVIEW",
-                        progress = 100,
-                        running = false,
-                        error = null,
-                        questionCount = result.questions.size,
-                        draft = result,
-                        destinations = destinations,
-                        targetSetId = null
+                    if (result.cards.isEmpty()) {
+                        throw ScanException(
+                            "No question-and-answer cards were found in these pages. Use a sharper photo and try again."
+                        )
+                    }
+
+                    _state.update {
+                        it.copy(
+                            stage = "REVIEW",
+                            progress = 100,
+                            running = false,
+                            error = null,
+                            questionCount = result.cards.size,
+                            deckDraft = result,
+                            draft = null,
+                            destinations = emptyList(),
+                            targetSetId = null
+                        )
+                    }
+                } else {
+                    val result = container.scanRepository.extractQuestions(
+                        baseUrl = settings.serverUrl,
+                        token = session.token,
+                        images = payload
                     )
+
+                    _state.update {
+                        it.copy(stage = "MATCHING", progress = it.progress.coerceAtLeast(68))
+                    }
+
+                    if (result.questions.isEmpty()) {
+                        throw ScanException(
+                            "No questions were found in these pages. Use a sharper photo and try again."
+                        )
+                    }
+
+                    val destinations = withContext(Dispatchers.IO) {
+                        container.libraryRepository.scanDestinations()
+                    }
+
+                    _state.update {
+                        it.copy(
+                            stage = "REVIEW",
+                            progress = 100,
+                            running = false,
+                            error = null,
+                            questionCount = result.questions.size,
+                            draft = result,
+                            deckDraft = null,
+                            destinations = destinations,
+                            targetSetId = null
+                        )
+                    }
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -223,17 +279,28 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
         _state.update { it.copy(targetSetId = setId, error = null) }
     }
 
-    /** Edits the topics that will be copied when a new set is saved. */
+    /** Edits the topics that will be copied when a new set or deck is saved. */
     fun updateDraftTopic(mainTopic: String? = null, subTopic: String? = null) {
         _state.update { state ->
-            val draft = state.draft ?: return@update state
-            state.copy(
-                draft = draft.copy(
-                    mainTopic = mainTopic ?: draft.mainTopic,
-                    subTopic = subTopic ?: draft.subTopic
-                ),
-                topicNotice = null
-            )
+            if (state.isDeck) {
+                val deck = state.deckDraft ?: return@update state
+                state.copy(
+                    deckDraft = deck.copy(
+                        mainTopic = mainTopic ?: deck.mainTopic,
+                        subTopic = subTopic ?: deck.subTopic
+                    ),
+                    topicNotice = null
+                )
+            } else {
+                val draft = state.draft ?: return@update state
+                state.copy(
+                    draft = draft.copy(
+                        mainTopic = mainTopic ?: draft.mainTopic,
+                        subTopic = subTopic ?: draft.subTopic
+                    ),
+                    topicNotice = null
+                )
+            }
         }
     }
 
@@ -242,18 +309,28 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
      * form useful when AI is not configured, exactly like the web app.
      */
     fun suggestTopics() {
-        val draft = _state.value.draft ?: return
-        if (_state.value.suggestingTopics) return
+        val snapshot = _state.value
+        val deckDraft = snapshot.deckDraft
+        val draft = snapshot.draft
+        if (draft == null && deckDraft == null) return
+        if (snapshot.suggestingTopics) return
         _state.update { it.copy(suggestingTopics = true, topicNotice = null) }
+
+        val title = deckDraft?.title ?: draft?.title.orEmpty()
+        val subject = deckDraft?.subject ?: draft?.subject.orEmpty()
+        val currentSubTopic = deckDraft?.subTopic ?: draft?.subTopic.orEmpty()
+        val currentMainTopic = deckDraft?.mainTopic ?: draft?.mainTopic.orEmpty()
+        val samples = if (deckDraft != null) {
+            deckDraft.cards.take(8).map { it.questionEn.ifBlank { it.questionMl } }
+        } else {
+            draft?.questions.orEmpty().take(8).map { it.questionEn.ifBlank { it.questionMl } }
+        }
 
         viewModelScope.launch {
             val settings = withContext(Dispatchers.IO) { container.settingsRepository.current() }
             val session = withContext(Dispatchers.IO) { container.authRepository.current() }
             val existing = withContext(Dispatchers.IO) {
                 runCatching { container.libraryRepository.subTopics() }.getOrDefault(emptyList())
-            }
-            val samples = draft.questions.take(8).map {
-                it.questionEn.ifBlank { it.questionMl }
             }
 
             var suggestion: TopicSuggestion? = null
@@ -265,9 +342,9 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
                     container.serverApi.classifyTopic(
                         baseUrl = settings.serverUrl,
                         token = session.token,
-                        title = draft.title,
-                        subject = draft.subject,
-                        subTopic = draft.subTopic,
+                        title = title,
+                        subject = subject,
+                        subTopic = currentSubTopic,
                         subTopics = existing,
                         samples = samples
                     )
@@ -284,17 +361,26 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
             }
 
             val mainTopic = suggestion?.mainTopic
-                ?: Topics.normalize(draft.mainTopic, draft.title, draft.subject)
+                ?: Topics.normalize(currentMainTopic, title, subject)
             val subTopic = suggestion?.subTopic
-                ?: Topics.subTopic(draft.subTopic, draft.title)
+                ?: Topics.subTopic(currentSubTopic, title)
 
             _state.update { state ->
-                val current = state.draft ?: return@update state
-                state.copy(
-                    draft = current.copy(mainTopic = mainTopic, subTopic = subTopic),
-                    suggestingTopics = false,
-                    topicNotice = notice
-                )
+                if (state.isDeck) {
+                    val current = state.deckDraft ?: return@update state
+                    state.copy(
+                        deckDraft = current.copy(mainTopic = mainTopic, subTopic = subTopic),
+                        suggestingTopics = false,
+                        topicNotice = notice
+                    )
+                } else {
+                    val current = state.draft ?: return@update state
+                    state.copy(
+                        draft = current.copy(mainTopic = mainTopic, subTopic = subTopic),
+                        suggestingTopics = false,
+                        topicNotice = notice
+                    )
+                }
             }
         }
     }
@@ -302,6 +388,7 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
     /** Persists the reviewed draft as a new set or appends it to the target. */
     fun saveDraft() {
         val snapshot = _state.value
+        if (snapshot.isDeck) return
         val draft = snapshot.draft ?: return
         if (snapshot.running) return
 
@@ -394,12 +481,14 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
 
     /**
      * Copies the reviewed draft into the shared scanned-deck database without
-     * touching the library. This is separate from [saveDraft] on purpose: an
-     * administrator can keep the cards for deck practice, the library, or both.
+     * touching the library. Set scans can still be saved to the library as
+     * well; deck scans only go here.
      */
     fun saveDraftToDeck() {
         val snapshot = _state.value
-        val draft = snapshot.draft ?: return
+        val draft = snapshot.draft
+        val deckDraft = snapshot.deckDraft
+        if (draft == null && deckDraft == null) return
         if (snapshot.running || snapshot.savingDeck || snapshot.deckSaved) return
 
         _state.update {
@@ -423,11 +512,18 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
                 }
 
                 withContext(Dispatchers.IO) {
-                    container.serverApi.saveDeckCards(
-                        base,
-                        session.token,
-                        draft
-                    )
+                    when {
+                        deckDraft != null -> container.serverApi.saveDeckCards(
+                            base,
+                            session.token,
+                            deckDraft
+                        )
+                        draft != null -> container.serverApi.saveDeckCards(
+                            base,
+                            session.token,
+                            draft
+                        )
+                    }
                 }
 
                 /* Refresh the local cache so the new cards are visible even if
@@ -485,6 +581,7 @@ class AnalysingViewModel(private val container: AppContainer) : ViewModel() {
             setId = null,
             questionCount = 0,
             draft = null,
+            deckDraft = null,
             destinations = emptyList(),
             targetSetId = null,
             suggestingTopics = false,

@@ -13,8 +13,10 @@ functions (`/api/auth`, `/api/admin`, `/api/sync`, `/api/scan`).
 
 - **Sign in once** — the same admin-created username and password work on the
   web and on Android. The admin can also open a console inside the app.
-- **Scan or import questions** — administrators capture up to 8 pages, review the
-  bilingual draft, then save it as a new set or append it to an existing topic.
+- **Scan or import questions** — administrators capture up to 8 pages and pick
+  **Question set** for four-option MCQs or **Deck cards** for one question and
+  one answer per card. The bilingual draft can be reviewed before it is saved as
+  a new set, appended to an existing topic, or written to the shared deck pool.
 - **Bilingual quiz** — every question carries English and Malayalam text. The
   language switch changes question content only.
 - **Practice and mock exams** — choose question count and duration, resume an
@@ -55,8 +57,8 @@ the server. Learner accounts are created in the admin console.
 | Library | Search, subject filters, empty state, set cards |
 | Progress | Score trend, accuracy, streak, recent attempts |
 | Profile | Editable name, goal, language, history, admin entry, settings |
-| Scan camera | Live CameraX preview, flash, lens flip, SINGLE / MULTI / BATCH |
-| Analysing / review | File card, percentage, stage checklist, draft preview, new-set or append destination picker |
+| Scan camera | Live CameraX preview, flash, lens flip, Question set / Deck cards switch, SINGLE / MULTI / BATCH |
+| Analysing / review | File card, percentage, stage checklist, draft preview, new-set or append destination picker; deck scans show a card preview with **Save to decks** |
 | Scan result | Saved banner, confidence chips, correct options, actions |
 | Exam setup | Practice/mock segmented control, count and duration chips |
 | Question | Custom timer/counter, palette, flags, leave and submit dialogs |
@@ -125,23 +127,32 @@ No `local.properties` secrets are needed. The app builds with no keys at all.
 1. **Capture** — CameraX writes a full-size JPEG to `cache/scan_inbox`.
    `SINGLE` proceeds immediately, `MULTI` collects up to eight pages, and
    `BATCH` opens the system photo picker and treats the selection as one set.
+   The camera header also switches the scan type: **Question set** extracts
+   four-option MCQs, **Deck cards** extracts one question and one answer per
+   card. The choice travels with the photos in `ScanSessionStore`.
 2. **Compress** — `ImageUtils.compressForUpload` downsamples to at most
    1600 px, applies EXIF rotation and re-encodes JPEG at quality 86.
 3. **Extract** — `ScanRepository` posts the images to `/api/scan`. The server
-   holds the AI key and applies the same bilingual extraction prompt as the web
-   app.
-4. **Validate** — questions without both a stem and four options are dropped,
-   letters are normalised to A–D, blank Malayalam falls back to English, and
-   confidence is clamped. An empty result becomes a friendly retry message.
-5. **Review** — extraction stops at a draft. Nothing is written yet; the review
-   card previews the first questions and lists every existing set as an append
-   destination alongside **Create a new set**.
+   holds the AI key. Set scans use the bilingual MCQ prompt; deck scans use a
+   separate prompt that asks for `question_en`, `question_ml`, `answer_en` and
+   `answer_ml` per card. A marked MCQ paper contributes the correct option text
+   as the card answer.
+4. **Validate** — for sets, questions without both a stem and four options are
+   dropped, letters are normalised to A–D, blank Malayalam falls back to English,
+   and confidence is clamped. For decks, cards without a question or an answer
+   are dropped, duplicates are removed and blank Malayalam falls back to English.
+   An empty result becomes a friendly retry message.
+5. **Review** — extraction stops at a draft. Nothing is written yet. A set draft
+   previews the first questions and lists every existing set as an append
+   destination alongside **Create a new set**. A deck draft previews the first
+   cards, edits the deck topics, and offers **Save to decks** only.
 6. **Save** — `LibraryRepository.saveScan` writes a new set, or `appendScan`
    updates the chosen set in place. Appending keeps its title, subject and
    previous questions, gives the new questions fresh IDs and bumps `updatedAt`.
    New titles get a `(2)`, `(3)` suffix if they collide. The administrator can
-   also press **Save to decks** on the review card to copy the same draft into
-   the optional shared scanned-deck database without changing the library.
+   also press **Save to decks** on a set review card to copy the same draft into
+   the optional shared scanned-deck database without changing the library. A
+   deck scan never writes to the library: its only destination is the deck pool.
 7. **Sync** — when auto-sync is on, the saved set is pushed to the signed-in
    workspace. The admin can then assign it to a learner from the admin console.
 
@@ -243,6 +254,7 @@ android/
 | "Your session expired" | Sign in again. Sessions last seven days. |
 | Camera preview is black | Grant camera permission, or use **Import photos**. Emulators often need a virtual scene camera. |
 | "No complete questions were found" | Crop tighter, improve lighting, keep all four options in frame. |
+| "No complete question-and-answer cards were found" | Switch to **Question set** if the page is an MCQ paper, or keep both the question and the printed answer in frame. |
 | Scores missing on a new phone | Sign in with the same account and press **Settings → Sync now**. |
 | Reminders never appear | Allow notifications on Android 13+ and enable reminders in Profile. |
 
@@ -254,7 +266,13 @@ android/
 - [ ] Sign out; the local library is cleared.
 - [ ] Sign in as the learner and confirm only assigned sets appear.
 - [ ] Scan one clear page as admin; verify both languages and the correct option.
-- [ ] Press **Save to decks** on the review card and confirm the cards appear in
+- [ ] Switch the camera to **Deck cards**, scan a question-and-answer page, and
+      confirm the review shows one question and one answer per card.
+- [ ] Press **Save to decks** on the deck review and confirm the cards appear in
+      the deck library while the library sets are unchanged.
+- [ ] Open the Decks screen as admin and confirm the camera shortcut opens the
+      scanner already in **Deck cards** mode.
+- [ ] Press **Save to decks** on a set review card and confirm the cards appear in
       the deck library without changing the saved set.
 - [ ] Open a deck, swipe a few cards, undo one, then finish the round and review
       the missed pile.

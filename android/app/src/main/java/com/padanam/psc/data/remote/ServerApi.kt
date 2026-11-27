@@ -1,6 +1,7 @@
 package com.padanam.psc.data.remote
 
 import com.padanam.psc.data.auth.AuthUser
+import com.padanam.psc.data.model.AiDeckScanResult
 import com.padanam.psc.data.model.AiScanResult
 import com.padanam.psc.data.model.Decks
 import com.padanam.psc.data.model.RemoteDeckCard
@@ -296,20 +297,54 @@ class ServerApi(
                 })
             }
         }
+        postDeckCards(baseUrl, token, result.title, result.mainTopic, result.subTopic, questions)
+    }
+
+    /** Saves a deck-mode scan: one question and one answer per card. */
+    suspend fun saveDeckCards(
+        baseUrl: String,
+        token: String,
+        result: AiDeckScanResult
+    ): Int = withContext(Dispatchers.IO) {
+        val questions = buildJsonArray {
+            result.cards.forEach { card ->
+                val stem = card.questionEn.ifBlank { card.questionMl }
+                val answer = card.answerEn.ifBlank { card.answerMl }
+                if (stem.isBlank() || answer.isBlank()) return@forEach
+                add(buildJsonObject {
+                    put("stem", stem)
+                    put("answer", answer)
+                    put("explanation", card.explanationEn)
+                    put("stemMl", card.questionMl)
+                    put("answerMl", card.answerMl)
+                    put("explanationMl", card.explanationMl)
+                })
+            }
+        }
+        postDeckCards(baseUrl, token, result.title, result.mainTopic, result.subTopic, questions)
+    }
+
+    private suspend fun postDeckCards(
+        baseUrl: String,
+        token: String,
+        title: String,
+        mainTopic: String,
+        subTopic: String,
+        questions: JsonArray
+    ): Int {
         if (questions.isEmpty()) {
             throw ServerException("There are no complete cards to save to decks.")
         }
-
-        val title = result.title.trim().ifBlank { "Scanned deck" }
+        val cleanTitle = title.trim().ifBlank { "Scanned deck" }
         val root = post(baseUrl, "/api/decks", token, buildJsonObject {
             put("action", "save")
-            put("title", title.take(160))
-            put("mainTopic", result.mainTopic.trim().take(80))
-            put("subTopic", result.subTopic.trim().take(120).ifBlank { title.take(120) })
-            put("language", "en")
+            put("title", cleanTitle.take(160))
+            put("mainTopic", mainTopic.trim().take(80))
+            put("subTopic", subTopic.trim().take(120).ifBlank { cleanTitle.take(120) })
+            put("language", "both")
             put("questions", questions)
         })
-        root["saved"]?.let { numberOrNull(it) } ?: 0
+        return root["saved"]?.let { numberOrNull(it) } ?: 0
     }
 
     suspend fun scan(

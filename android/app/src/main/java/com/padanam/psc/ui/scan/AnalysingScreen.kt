@@ -103,7 +103,7 @@ fun AnalysingScreen(
 
     // Hold the finished state for a beat so the saved banner is visible.
     LaunchedEffect(state.stage, state.setId) {
-        if (state.stage == "DONE") {
+        if (state.stage == "DONE" && !state.isDeck) {
             val setId = state.setId ?: return@LaunchedEffect
             delay(900)
             onSaved(setId, state.appended, state.questionCount)
@@ -136,6 +136,7 @@ fun AnalysingScreen(
         TopBar(
             title = when {
                 isDone -> "Scan saved"
+                isReview && state.isDeck -> "Review deck scan"
                 isReview -> "Review scan"
                 else -> "Analysing"
             },
@@ -186,16 +187,27 @@ fun AnalysingScreen(
                         onCancel = { closeScreen() }
                     )
                 } else if (isReview) {
-                    ReviewPanel(
-                        state = state,
-                        onSelectTarget = vm::selectTarget,
-                        onDraftMainTopic = { vm.updateDraftTopic(mainTopic = it) },
-                        onDraftSubTopic = { vm.updateDraftTopic(subTopic = it) },
-                        onSuggestTopics = vm::suggestTopics,
-                        onSave = vm::saveDraft,
-                        onSaveDeck = vm::saveDraftToDeck,
-                        onDiscard = { closeScreen() }
-                    )
+                    if (state.isDeck) {
+                        DeckReviewPanel(
+                            state = state,
+                            onDraftMainTopic = { vm.updateDraftTopic(mainTopic = it) },
+                            onDraftSubTopic = { vm.updateDraftTopic(subTopic = it) },
+                            onSuggestTopics = vm::suggestTopics,
+                            onSaveDeck = vm::saveDraftToDeck,
+                            onDiscard = { closeScreen() }
+                        )
+                    } else {
+                        ReviewPanel(
+                            state = state,
+                            onSelectTarget = vm::selectTarget,
+                            onDraftMainTopic = { vm.updateDraftTopic(mainTopic = it) },
+                            onDraftSubTopic = { vm.updateDraftTopic(subTopic = it) },
+                            onSuggestTopics = vm::suggestTopics,
+                            onSave = vm::saveDraft,
+                            onSaveDeck = vm::saveDraftToDeck,
+                            onDiscard = { closeScreen() }
+                        )
+                    }
                 } else {
                     ProgressBlock(state = state)
 
@@ -244,21 +256,24 @@ private fun FileCard(
     state: AnalysingState
 ) {
     val modified = remember(primary.path) { primary.file.lastModified() }
-    val status = when (state.stage) {
-        "DONE" -> "SAVED"
-        "ERROR" -> "PAUSED"
-        "REVIEW" -> "READY"
-        "SAVING" -> "SAVING"
+    val status = when {
+        state.deckSaved -> "SAVED"
+        state.stage == "DONE" -> "SAVED"
+        state.stage == "ERROR" -> "PAUSED"
+        state.stage == "REVIEW" -> "READY"
+        state.stage == "SAVING" -> "SAVING"
         else -> "${state.progress}%"
     }
-    val statusBackground = when (state.stage) {
-        "DONE" -> SuccessSoft
-        "ERROR" -> DangerSoft
+    val statusBackground = when {
+        state.deckSaved -> SuccessSoft
+        state.stage == "DONE" -> SuccessSoft
+        state.stage == "ERROR" -> DangerSoft
         else -> IndigoWash
     }
-    val statusColor = when (state.stage) {
-        "DONE" -> Success
-        "ERROR" -> Danger
+    val statusColor = when {
+        state.deckSaved -> Success
+        state.stage == "DONE" -> Success
+        state.stage == "ERROR" -> Danger
         else -> Indigo
     }
 
@@ -433,6 +448,201 @@ private fun SavedBanner(
                 color = InkMuted
             )
         }
+    }
+}
+
+@Composable
+private fun DeckReviewPanel(
+    state: AnalysingState,
+    onDraftMainTopic: (String) -> Unit,
+    onDraftSubTopic: (String) -> Unit,
+    onSuggestTopics: () -> Unit,
+    onSaveDeck: () -> Unit,
+    onDiscard: () -> Unit
+) {
+    val draft = state.deckDraft ?: return
+    val cardCount = draft.cards.size
+    val deckError = state.deckError
+    val topicNotice = state.topicNotice
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(SurfaceWhite)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(IndigoSoft),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Rounded.Layers,
+                    contentDescription = null,
+                    tint = Indigo,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Deck cards ready", style = AppType.SectionTitle, color = Navy)
+                Text(
+                    "$cardCount card${if (cardCount == 1) "" else "s"} extracted · " +
+                        (if (state.deckSaved) "saved to decks" else "nothing saved yet"),
+                    style = AppType.BodyTiny,
+                    color = InkMuted
+                )
+            }
+        }
+
+        Text(
+            if (state.deckSaved) {
+                "These cards are in the shared deck library. Your question sets were not changed."
+            } else {
+                "Each card keeps one question and one answer. Check the topics, then save them to the shared deck library."
+            },
+            style = AppType.BodySmall,
+            color = InkMuted
+        )
+
+        TopicEditor(
+            mainTopic = draft.mainTopic,
+            onMainTopicChange = onDraftMainTopic,
+            subTopic = draft.subTopic,
+            onSubTopicChange = onDraftSubTopic,
+            suggestions = emptyList(),
+            onSuggest = onSuggestTopics,
+            suggesting = state.suggestingTopics,
+            hint = "These topics are saved with the deck. The library is not changed."
+        )
+
+        if (!topicNotice.isNullOrBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(IndigoWash)
+                    .padding(horizontal = 11.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = Indigo,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(topicNotice, style = AppType.BodyTiny, color = IndigoText)
+            }
+        }
+
+        if (!deckError.isNullOrBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DangerSoft)
+                    .padding(horizontal = 11.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = Danger,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(deckError, style = AppType.BodyTiny, color = Danger)
+            }
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            draft.cards.take(3).forEachIndexed { index, card ->
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(IndigoWash),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "${index + 1}",
+                            style = AppType.MonoSmall,
+                            color = Indigo
+                        )
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            card.questionEn.ifBlank { card.questionMl },
+                            style = AppType.BodySmall,
+                            color = Navy,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            card.answerEn.ifBlank { card.answerMl },
+                            style = AppType.BodyTiny,
+                            color = Success,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            if (cardCount > 3) {
+                Text(
+                    "+ ${cardCount - 3} more card${if (cardCount - 3 == 1) "" else "s"}",
+                    style = AppType.BodyTiny,
+                    color = InkMuted
+                )
+            }
+        }
+
+        ThinDivider()
+
+        PrimaryButton(
+            text = when {
+                state.savingDeck -> "Saving to decks…"
+                state.deckSaved -> "Saved to decks"
+                else -> "Save to decks"
+            },
+            onClick = onSaveDeck,
+            icon = if (state.deckSaved) Icons.Rounded.Check else Icons.Rounded.Layers,
+            enabled = !state.running && !state.savingDeck && !state.deckSaved
+        )
+
+        Text(
+            if (state.deckSaved) {
+                "The cards are in the shared deck library. Your question sets were not changed."
+            } else {
+                "This writes the cards to the separate deck database. Your library is not changed."
+            },
+            style = AppType.BodyTiny,
+            color = InkMuted
+        )
+
+        LightButton(
+            text = if (state.deckSaved) "Close" else "Discard draft",
+            onClick = onDiscard,
+            icon = Icons.Rounded.Close,
+            tint = InkMuted,
+            container = SurfaceMuted,
+            height = 46.dp
+        )
     }
 }
 
@@ -806,13 +1016,19 @@ private fun StepList(state: AnalysingState) {
         )
         ThinDivider()
         StepRow(
-            label = "Matching options A–D",
-            meta = if (statusFor(2) == StepStatus.COMPLETE) "VERIFIED" else "A–D",
+            label = if (state.isDeck) "Checking answers" else "Matching options A–D",
+            meta = if (statusFor(2) == StepStatus.COMPLETE) {
+                "VERIFIED"
+            } else if (state.isDeck) {
+                "EN + ML"
+            } else {
+                "A–D"
+            },
             status = statusFor(2)
         )
         ThinDivider()
         StepRow(
-            label = "Saving to database",
+            label = if (state.isDeck) "Saving to decks" else "Saving to database",
             meta = if (statusFor(3) == StepStatus.COMPLETE) "SAVED" else "JSON",
             status = statusFor(3)
         )

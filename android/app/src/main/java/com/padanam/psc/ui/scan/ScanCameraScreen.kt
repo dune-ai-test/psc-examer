@@ -80,6 +80,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.padanam.psc.AppContainer
+import com.padanam.psc.data.model.ScanMode
 import com.padanam.psc.ui.components.TopSafeArea
 import com.padanam.psc.ui.theme.AppType
 import com.padanam.psc.ui.theme.Danger
@@ -131,6 +132,7 @@ private val CapturedImagesSaver = listSaver<List<PreparedImage>, String>(
 fun ScanCameraScreen(
     container: AppContainer,
     openGalleryOnStart: Boolean,
+    initialMode: String = ScanMode.SET,
     onClose: () -> Unit,
     onImagesReady: () -> Unit
 ) {
@@ -139,6 +141,7 @@ fun ScanCameraScreen(
     val scope = rememberCoroutineScope()
 
     var mode by rememberSaveable { mutableStateOf(MODE_SINGLE) }
+    var scanMode by rememberSaveable { mutableStateOf(ScanMode.normalize(initialMode)) }
     var captured by rememberSaveable(stateSaver = CapturedImagesSaver) {
         mutableStateOf<List<PreparedImage>>(emptyList())
     }
@@ -169,7 +172,7 @@ fun ScanCameraScreen(
     fun finish(images: List<PreparedImage>) {
         if (images.isEmpty() || submitted) return
         submitted = true
-        container.scanSession.prepare(images)
+        container.scanSession.prepare(images, scanMode)
         onImagesReady()
     }
 
@@ -350,7 +353,7 @@ fun ScanCameraScreen(
     val hint = when (mode) {
         MODE_MULTI -> "Page ${(captured.size + 1).coerceAtMost(MAX_PAGES)} of up to $MAX_PAGES"
         MODE_BATCH -> "Batch import · choose up to $MAX_PAGES photos"
-        else -> "All options in frame"
+        else -> if (scanMode == ScanMode.DECK) "Question and answer in frame" else "All options in frame"
     }
 
     Column(
@@ -373,7 +376,7 @@ fun ScanCameraScreen(
                 modifier = Modifier.align(Alignment.CenterStart)
             )
             Text(
-                "SCAN A QUESTION",
+                if (scanMode == ScanMode.DECK) "SCAN DECK CARDS" else "SCAN A QUESTION",
                 style = AppType.Eyebrow.copy(letterSpacing = 1.2.sp),
                 color = OnDark.copy(alpha = 0.7f),
                 modifier = Modifier.align(Alignment.Center)
@@ -384,6 +387,30 @@ fun ScanCameraScreen(
                 onClick = { flashOn = !flashOn },
                 active = flashOn,
                 modifier = Modifier.align(Alignment.CenterEnd)
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 8.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(OnDark.copy(alpha = 0.08f))
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            ScanTypeChip(
+                text = "Question set",
+                selected = scanMode == ScanMode.SET,
+                onClick = { scanMode = ScanMode.SET },
+                modifier = Modifier.weight(1f)
+            )
+            ScanTypeChip(
+                text = "Deck cards",
+                selected = scanMode == ScanMode.DECK,
+                onClick = { scanMode = ScanMode.DECK },
+                modifier = Modifier.weight(1f)
             )
         }
 
@@ -681,6 +708,29 @@ fun ScanCameraScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 12.dp)
+        )
+    }
+}
+
+@Composable
+private fun ScanTypeChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) OnDark else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text,
+            style = AppType.Button.copy(fontSize = 11.5.sp),
+            color = if (selected) DarkBackground else OnDark.copy(alpha = 0.6f)
         )
     }
 }
