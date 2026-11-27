@@ -572,22 +572,40 @@
     if (!authReady()) {
       return Promise.reject(new Error('Sign in to save scanned decks.'));
     }
-    var questions = (draft && draft.questions ? draft.questions : []).map(function (question) {
-      var en = A.questionFor(question, 'en');
-      var ml = A.questionFor(question, 'ml');
-      var answerEn = en.options[question.answer] || '';
-      var answerMl = ml.options[question.answer] || '';
-      return {
-        stem: en.stem || ml.stem,
-        answer: answerEn || answerMl,
-        explanation: en.explanation || '',
-        stemMl: question.ml ? ml.stem : '',
-        answerMl: question.ml ? answerMl : '',
-        explanationMl: question.ml ? (ml.explanation || '') : ''
-      };
-    }).filter(function (question) {
-      return !!question.stem && !!question.answer;
-    });
+    var questions;
+    if (draft && Array.isArray(draft.cards)) {
+      questions = draft.cards.map(function (card) {
+        var en = card.en || {};
+        var ml = card.ml || {};
+        return {
+          stem: en.question || ml.question || '',
+          answer: en.answer || ml.answer || '',
+          explanation: en.explanation || '',
+          stemMl: ml.question || '',
+          answerMl: ml.answer || '',
+          explanationMl: ml.explanation || ''
+        };
+      }).filter(function (card) {
+        return !!card.stem && !!card.answer;
+      });
+    } else {
+      questions = (draft && draft.questions ? draft.questions : []).map(function (question) {
+        var en = A.questionFor(question, 'en');
+        var ml = A.questionFor(question, 'ml');
+        var answerEn = en.options[question.answer] || '';
+        var answerMl = ml.options[question.answer] || '';
+        return {
+          stem: en.stem || ml.stem,
+          answer: answerEn || answerMl,
+          explanation: en.explanation || '',
+          stemMl: question.ml ? ml.stem : '',
+          answerMl: question.ml ? answerMl : '',
+          explanationMl: question.ml ? (ml.explanation || '') : ''
+        };
+      }).filter(function (question) {
+        return !!question.stem && !!question.answer;
+      });
+    }
 
     if (!questions.length) {
       return Promise.reject(new Error('There are no complete cards to save.'));
@@ -595,9 +613,9 @@
 
     return A.auth.api(REMOTE_ENDPOINT, {
       action: 'save',
-      title: draft.title || 'Scanned deck',
-      mainTopic: draft.mainTopic || '',
-      subTopic: draft.subTopic || '',
+      title: (draft && draft.title) || 'Scanned deck',
+      mainTopic: (draft && draft.mainTopic) || '',
+      subTopic: (draft && draft.subTopic) || '',
       language: 'both',
       questions: questions
     }).then(function (data) {

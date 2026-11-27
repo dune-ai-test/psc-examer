@@ -18,6 +18,7 @@
   ui.showSyncToken = false;
 
   var scan = {
+    mode: 'set',
     images: [],
     busy: false,
     adding: 0,
@@ -232,13 +233,17 @@
 
   views.deckLibrary = function () {
     var deck = A.deck.home();
+    var scanDeckButton = isAdmin()
+      ? '<a class="btn btn-primary" href="#/scan?mode=deck">' + icon('layers') + ' Scan deck cards</a>'
+      : '';
     if (!deck.cards) {
       return pageHead('Swipe decks', 'Deck library',
         'A calm, one-card-at-a-time way to revise the questions already in your library.',
-        '<a class="btn btn-ghost" href="#/library">' + icon('book') + ' Library</a>') +
+        scanDeckButton + '<a class="btn btn-ghost" href="#/library">' + icon('book') + ' Library</a>') +
         '<div class="card">' + emptyState('layers', 'No deck cards yet',
-          'Add questions to a set, or restore the demo sets. Every question in your library automatically becomes a deck card.',
-          '<a class="btn btn-primary" href="#/library">' + icon('book') + ' Open library</a>') + '</div>';
+          'Add questions to a set, or restore the demo sets. Every question in your library automatically becomes a deck card. An administrator can also scan question-and-answer cards into the shared deck library.',
+          '<a class="btn btn-primary" href="#/library">' + icon('book') + ' Open library</a>' +
+          (isAdmin() ? '<a class="btn btn-ghost" href="#/scan?mode=deck">' + icon('layers') + ' Scan deck cards</a>' : '')) + '</div>';
     }
 
     var cont = deck.continueInfo;
@@ -253,7 +258,7 @@
 
     return pageHead('Swipe decks', 'Deck library',
       'One question, one answer, one swipe. Decks are rebuilt from the questions already in your library.',
-      '<a class="btn btn-ghost" href="#/library">' + icon('book') + ' Library</a>') +
+      scanDeckButton + '<a class="btn btn-ghost" href="#/library">' + icon('book') + ' Library</a>') +
 
       '<section class="deck-hero">' +
         '<div class="deck-hero-copy">' +
@@ -281,7 +286,7 @@
       '</div>' +
       '<div class="deck-topic-grid">' + deck.topics.map(deckTopicCardHTML).join('') + '</div>' +
       '<p class="deck-footnote">' + icon('info') +
-        ' Deck cards use the correct option and explanation from each question. Your place in a round stays on this device; learned cards sync with your account.' +
+        ' Deck cards use the correct option and explanation from each question. Scanned question-and-answer cards are shared by the administrator. Your place in a round stays on this device; learned cards sync with your account.' +
       '</p>';
   };
 
@@ -1169,10 +1174,10 @@
 
   /* ── Scan ────────────────────────────────────────────── */
   var SCAN_STAGES = [
-    { key: 'reading', label: 'Reading the pages' },
-    { key: 'structuring', label: 'Structuring questions' },
-    { key: 'validating', label: 'Checking options and answers' },
-    { key: 'done', label: 'Ready to review' }
+    { key: 'reading', label: 'Reading the pages', deckLabel: 'Reading the pages' },
+    { key: 'structuring', label: 'Structuring questions', deckLabel: 'Structuring cards' },
+    { key: 'validating', label: 'Checking options and answers', deckLabel: 'Checking questions and answers' },
+    { key: 'done', label: 'Ready to review', deckLabel: 'Ready to review' }
   ];
 
   function scanTargetSet() {
@@ -1205,14 +1210,31 @@
     '</div>';
   }
 
-  views.scan = function () {
+  views.scan = function (presetMode) {
+    if (presetMode === 'deck' || presetMode === 'set') {
+      if (scan.mode !== presetMode) {
+        // Switching the scan type drops the previous draft but keeps the pages
+        // so the same photographs can be extracted again in the other mode.
+        scan.mode = presetMode;
+        scan.result = null;
+        scan.error = '';
+        scan.stage = '';
+        scan.progress = 0;
+        scan.savingDeck = false;
+        scan.deckSaved = false;
+        scan.mainTopic = '';
+        scan.subTopic = '';
+        scan.targetSetId = '';
+      }
+    }
+    var deckMode = scan.mode === 'deck';
     var settings = A.state.settings;
     var provider = A.gemini.provider(settings);
     var ready = provider.ready;
     var images = scan.images;
     var busy = scan.busy || scan.adding > 0;
     var result = scan.result;
-    var target = scanTargetSet();
+    var target = deckMode ? null : scanTargetSet();
     var titleValue = scan.title || (result ? result.title : '');
     var subjectValue = scan.subject || (result ? result.subject : 'General Knowledge');
     var mainTopicValue = scan.mainTopic || (result ? result.mainTopic : '') ||
@@ -1234,9 +1256,11 @@
     var drop = atLimit
       ? '<div class="inline-note" style="margin-top:12px">' + icon('check-circle') + ' Maximum of ' + A.gemini.MAX_IMAGES + ' pages reached. Remove one to add another.</div>'
       : '<div class="scan-drop" id="scanDrop">' +
-          '<span class="scan-drop-icon">' + icon('image') + '</span>' +
-          '<h3>' + (images.length ? 'Add more pages' : 'Add your question paper') + '</h3>' +
-          '<p>Drop photos here, choose files, or use your camera. Up to ' + A.gemini.MAX_IMAGES + ' pages — each one is compressed in your browser before scanning.</p>' +
+          '<span class="scan-drop-icon">' + icon(deckMode ? 'layers' : 'image') + '</span>' +
+          '<h3>' + (images.length ? 'Add more pages' : (deckMode ? 'Add a question-and-answer page' : 'Add your question paper')) + '</h3>' +
+          '<p>' + (deckMode
+            ? 'Photograph a Q&A sheet, a revision list, or a question paper with marked answers. Each card keeps one question and one answer.'
+            : 'Drop photos here, choose files, or use your camera. Up to ' + A.gemini.MAX_IMAGES + ' pages — each one is compressed in your browser before scanning.') + '</p>' +
           '<div class="scan-drop-actions">' +
             '<button type="button" class="btn btn-primary btn-sm" data-action="scan-pick"' + (busy ? ' disabled' : '') + '>' + icon('upload') + ' Choose photos</button>' +
             '<button type="button" class="btn btn-ghost btn-sm" data-action="scan-camera"' + (busy ? ' disabled' : '') + '>' + icon('camera') + ' Use camera</button>' +
@@ -1244,8 +1268,21 @@
           '<p class="scan-drop-hint">JPG, PNG or WEBP · straight, well-lit pages work best</p>' +
         '</div>';
 
+    var modeSwitch = '<div class="scan-mode" role="group" aria-label="Scan type">' +
+      '<button type="button" class="scan-mode-btn' + (!deckMode ? ' is-active' : '') + '" data-action="scan-mode" data-mode="set" aria-pressed="' + (!deckMode) + '">' +
+        '<span class="scan-mode-icon">' + icon('list') + '</span>' +
+        '<span class="scan-mode-copy"><strong>Question set</strong><small>1 question · 4 options</small></span>' +
+      '</button>' +
+      '<button type="button" class="scan-mode-btn' + (deckMode ? ' is-active' : '') + '" data-action="scan-mode" data-mode="deck" aria-pressed="' + deckMode + '">' +
+        '<span class="scan-mode-icon">' + icon('layers') + '</span>' +
+        '<span class="scan-mode-copy"><strong>Deck cards</strong><small>1 question · 1 answer</small></span>' +
+      '</button>' +
+    '</div>';
+
     var pagesBlocked = provider.id === 'pages' && !ready;
-    var runLabel = ready ? 'Extract questions' : (pagesBlocked ? 'Check provider' : 'Try sample extraction');
+    var runLabel = ready
+      ? (deckMode ? 'Extract deck cards' : 'Extract questions')
+      : (pagesBlocked ? 'Check provider' : 'Try sample extraction');
     var runHint;
     if (ready) {
       if (provider.id === 'openai') {
@@ -1269,7 +1306,7 @@
       '</button>' +
       (ready
         ? '<button type="button" class="btn btn-ghost"' + (busy ? ' disabled' : '') + ' data-action="scan-demo">Load sample</button>'
-        : '<button type="button" class="btn btn-ghost" data-action="open-set-form">' + icon('plus') + ' Add manually</button>') +
+        : (deckMode ? '' : '<button type="button" class="btn btn-ghost" data-action="open-set-form">' + icon('plus') + ' Add manually</button>')) +
     '</div>' +
     '<p class="field-hint" style="margin-top:10px">' + runHint + '</p>';
 
@@ -1280,8 +1317,10 @@
         ? '<div class="key-state"><span class="dot"></span><span>' + e(provider.short) + ' ready · ' + e(provider.model) + '</span><a href="#/settings">Manage</a></div>'
         : '<div class="key-state is-missing"><span class="dot"></span><span>' + e(provider.short) + ' not configured</span><a href="#/settings">Set up</a></div>';
 
-    return pageHead('Scan & import', 'Turn a paper into a question set',
-      'Photograph a previous PSC paper. ' + e(provider.label) + ' extracts the questions; review them, then save as a new set or continue an existing topic.',
+    return pageHead('Scan & import', deckMode ? 'Turn a paper into deck cards' : 'Turn a paper into a question set',
+      deckMode
+        ? 'Photograph a Q&A sheet or a paper with marked answers. ' + e(provider.label) + ' extracts one question and one answer per card; review them, then save to the shared deck library.'
+        : 'Photograph a previous PSC paper. ' + e(provider.label) + ' extracts the questions; review them, then save as a new set or continue an existing topic.',
       '<a class="btn btn-ghost" href="#/library">' + icon('book') + ' Library</a>') +
 
       '<div class="scan-grid">' +
@@ -1289,15 +1328,16 @@
           '<section class="card card-pad">' +
             '<input type="file" id="scanFiles" accept="image/*" multiple hidden>' +
             '<input type="file" id="scanCamera" accept="image/*" capture="environment" hidden>' +
+            modeSwitch +
             drop +
             previews +
             '<div class="scan-form">' +
-              (A.state.sets.length ? '<div style="margin-bottom:14px">' + scanTargetField('scanTarget') + '</div>' : '') +
+              (!deckMode && A.state.sets.length ? '<div style="margin-bottom:14px">' + scanTargetField('scanTarget') + '</div>' : '') +
               (target
                 ? ''
                 : '<div class="field">' +
-                    '<label class="field-label" for="scanTitle">Set title <span class="faint">(optional)</span></label>' +
-                    '<input class="input" id="scanTitle" data-scan-field="title" maxlength="90" placeholder="e.g. PSC LD Clerk — 2023" value="' + e(titleValue) + '">' +
+                    '<label class="field-label" for="scanTitle">' + (deckMode ? 'Deck title' : 'Set title') + ' <span class="faint">(optional)</span></label>' +
+                    '<input class="input" id="scanTitle" data-scan-field="title" maxlength="90" placeholder="' + (deckMode ? 'e.g. Kerala Geography — quick cards' : 'e.g. PSC LD Clerk — 2023') + '" value="' + e(titleValue) + '">' +
                   '</div>') +
               '<div class="form-grid" style="margin-top:12px">' +
                 (target
@@ -1340,7 +1380,9 @@
           '<div class="card scan-aside-card">' +
             '<h3>' + icon('spark') + ' ' + e(provider.label) + ' scanning</h3>' +
             keyState +
-            '<p>Questions come back as a draft. Nothing is saved until you press <b>Save to library</b> or append them to an existing set.</p>' +
+            '<p>' + (deckMode
+              ? 'Cards come back as a draft. Nothing is saved until you press <b>Save to decks</b>.'
+              : 'Questions come back as a draft. Nothing is saved until you press <b>Save to library</b> or append them to an existing set.') + '</p>' +
             (provider.id === 'gemini'
               ? '<a class="link" style="display:inline-block;margin-top:10px;font-size:10.5px" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get a free API key ↗</a>'
               : '<a class="link" style="display:inline-block;margin-top:10px;font-size:10.5px" href="#/settings">Open provider settings →</a>') +
@@ -1348,9 +1390,13 @@
           '<div class="card scan-aside-card">' +
             '<h3>' + icon('list') + ' How it works</h3>' +
             '<ol class="scan-steps">' +
-              '<li><span class="step-num">1</span><p><strong>Add pages.</strong> Photograph the questions — answers are optional; the model can solve them.</p></li>' +
-              '<li><span class="step-num">2</span><p><strong>Extract.</strong> Bilingual questions, options and explanations are pulled into a draft set.</p></li>' +
-              '<li><span class="step-num">3</span><p><strong>Review & save.</strong> Keep a new set, or append the questions to an existing topic so its library continues to grow.</p></li>' +
+              (deckMode
+                ? '<li><span class="step-num">1</span><p><strong>Add pages.</strong> Photograph the questions and answers. A marked MCQ paper works too.</p></li>' +
+                  '<li><span class="step-num">2</span><p><strong>Extract.</strong> One question and one answer per card, with an optional explanation.</p></li>' +
+                  '<li><span class="step-num">3</span><p><strong>Review & save.</strong> Send the cards to the shared deck library. Your question sets stay unchanged.</p></li>'
+                : '<li><span class="step-num">1</span><p><strong>Add pages.</strong> Photograph the questions — answers are optional; the model can solve them.</p></li>' +
+                  '<li><span class="step-num">2</span><p><strong>Extract.</strong> Bilingual questions, options and explanations are pulled into a draft set.</p></li>' +
+                  '<li><span class="step-num">3</span><p><strong>Review & save.</strong> Keep a new set, or append the questions to an existing topic so its library continues to grow.</p></li>') +
             '</ol>' +
           '</div>' +
           '<div class="card scan-aside-card">' +
@@ -1364,6 +1410,62 @@
         '</aside>' +
       '</div>';
   };
+
+  function deckScanResultHTML(result) {
+    var cards = Array.isArray(result.cards) ? result.cards : [];
+    var bilingual = cards.filter(function (card) { return !!card.ml; }).length;
+    var mainTopic = scan.mainTopic || result.mainTopic ||
+      A.normalizeMainTopic('', result.title, result.subject);
+    var subTopic = scan.subTopic || result.subTopic || result.title || 'General';
+    var preview = cards.slice(0, 3).map(function (card, index) {
+      var lang = A.state.profile.language === 'ml' && card.ml ? 'ml' : 'en';
+      var view = lang === 'ml' ? card.ml : card.en;
+      return '<div class="q-card scan-deck-card" style="padding:12px 14px">' +
+        '<span class="q-num">' + A.pad(index + 1) + '</span>' +
+        '<div class="scan-deck-copy">' +
+          '<strong class="' + mlClass(lang) + '">' + A.text(clip(view.question, 180)) + '</strong>' +
+          '<span class="scan-deck-answer">' + icon('check') +
+            '<span class="' + mlClass(lang) + '">' + A.text(clip(view.answer, 140)) + '</span>' +
+          '</span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    return '<section class="card scan-status scan-result">' +
+      '<div class="scan-status-head">' +
+        '<span class="empty-icon" style="width:36px;height:36px;border-radius:11px;margin:0">' + icon('check') + '</span>' +
+        '<div><h3>Deck draft ready</h3><p>' +
+          (scan.deckSaved
+            ? 'These cards are in the shared deck library. Your question sets were not changed.'
+            : 'Nothing is saved yet. Check the cards, then save them to the shared deck library.') +
+        '</p></div>' +
+      '</div>' +
+      '<div class="scan-result-count"><strong>' + cards.length + '</strong><span>cards extracted' +
+        (bilingual ? ' · ' + bilingual + ' bilingual' : '') + '</span></div>' +
+      '<div class="tag-row" style="margin-top:8px">' +
+        '<span class="chip chip--indigo">' + e(mainTopic) + '</span>' +
+        '<span class="chip">' + e(subTopic) + '</span>' +
+        '<span class="chip">' + e(result.subject || 'General Knowledge') + '</span>' +
+        (scan.deckSaved
+          ? '<span class="chip chip--success">' + icon('check') + ' Saved</span>'
+          : '<span class="chip">Draft</span>') +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">' + preview + '</div>' +
+      (cards.length > 3
+        ? '<p class="field-hint" style="margin-top:8px">+ ' + (cards.length - 3) + ' more cards will be saved.</p>'
+        : '') +
+      '<div class="scan-result-actions">' +
+        '<button type="button" class="btn btn-primary" data-action="scan-save-deck"' +
+          (scan.savingDeck || scan.deckSaved ? ' disabled' : '') + '>' +
+          icon(scan.deckSaved ? 'check-circle' : 'layers') + ' ' +
+          (scan.savingDeck ? 'Saving to decks…' : scan.deckSaved ? 'Saved to decks' : 'Save to decks') +
+        '</button>' +
+        '<button type="button" class="btn btn-subtle" data-action="scan-discard">' + icon('trash') + ' Discard</button>' +
+      '</div>' +
+      '<p class="field-hint" style="margin-top:8px">Saving writes these cards to the separate deck database. ' +
+        'The library, its sets and their questions stay unchanged.</p>' +
+    '</section>';
+  }
 
   views.scanRunner = function () {
     if (scan.adding > 0) {
@@ -1387,7 +1489,7 @@
           cls += ' scan-stage--active';
           mark = '<span class="spinner"></span>';
         }
-        return '<div class="' + cls + '">' + mark + '<span>' + stage.label + '</span></div>';
+        return '<div class="' + cls + '">' + mark + '<span>' + (scan.mode === 'deck' ? stage.deckLabel : stage.label) + '</span></div>';
       }).join('');
       return '<section class="card scan-status">' +
         '<div class="scan-status-head"><span class="spinner"></span><h3>Scanning your paper</h3></div>' +
@@ -1405,6 +1507,7 @@
     }
 
     if (!scan.result) return '';
+    if (scan.mode === 'deck') return deckScanResultHTML(scan.result);
 
     var result = scan.result;
     var target = scanTargetSet();
@@ -1480,11 +1583,19 @@
 
   views.scanTopicInfo = function () {
     var result = scan.result;
+    var samples = [];
+    if (result) {
+      if (Array.isArray(result.cards)) {
+        samples = result.cards.slice(0, 8).map(function (card) { return card.en.question; });
+      } else if (Array.isArray(result.questions)) {
+        samples = result.questions.slice(0, 8).map(function (q) { return q.en.stem; });
+      }
+    }
     return {
       title: scan.title || (result ? result.title : ''),
       subject: scan.subject || (result ? result.subject : 'General Knowledge'),
       subTopic: scan.subTopic || (result ? result.subTopic : ''),
-      samples: result ? result.questions.slice(0, 8).map(function (q) { return q.en.stem; }) : []
+      samples: samples
     };
   };
 
@@ -1541,8 +1652,9 @@
 
   views.scanRun = async function (demo) {
     if (scan.busy || scan.adding > 0) return;
+    var deckMode = scan.mode === 'deck';
     var settings = A.state.settings;
-    var target = scanTargetSet();
+    var target = deckMode ? null : scanTargetSet();
     var provider = A.gemini.provider(settings);
     if (!demo && provider.id === 'pages' && !A.gemini.proxy().checked) {
       await A.gemini.refreshProxy();
@@ -1589,9 +1701,33 @@
         await wait(620);
         stage('validating', 0.84);
         await wait(480);
-        var sample = A.clone(Seed.demoScan);
-        sample.questions.forEach(function (q) { q.id = A.uid('q'); });
-        extraction = sample;
+        var sampleSet = A.clone(Seed.demoScan);
+        if (deckMode) {
+          var sampleCards = sampleSet.questions.map(function (q) {
+            var en = A.questionFor(q, 'en');
+            var ml = q.ml ? A.questionFor(q, 'ml') : null;
+            var answerEn = en.options[q.answer] || '';
+            var answerMl = ml ? (ml.options[q.answer] || '') : '';
+            return {
+              id: A.uid('card'),
+              en: { question: en.stem, answer: answerEn, explanation: en.explanation || '' },
+              ml: q.ml ? { question: ml.stem, answer: answerMl, explanation: ml.explanation || '' } : null
+            };
+          }).filter(function (card) {
+            return !!(card.en.question && card.en.answer);
+          });
+          extraction = {
+            mode: 'deck',
+            title: sampleSet.title,
+            subject: sampleSet.subject,
+            mainTopic: sampleSet.mainTopic,
+            subTopic: sampleSet.subTopic,
+            cards: sampleCards
+          };
+        } else {
+          sampleSet.questions.forEach(function (q) { q.id = A.uid('q'); });
+          extraction = sampleSet;
+        }
       } else {
         extraction = await A.gemini.extract({
           provider: provider.id,
@@ -1600,6 +1736,7 @@
           baseUrl: settings.openaiUrl,
           openaiKey: settings.openaiKey,
           openaiModel: settings.openaiModel,
+          mode: deckMode ? 'deck' : 'set',
           language: scan.language || 'both',
           titleHint: target ? target.title : scan.title,
           subject: target ? target.subject : scan.subject,
@@ -1608,8 +1745,13 @@
         });
       }
 
-      if (!extraction.questions || !extraction.questions.length) {
-        throw new Error('No questions were found in these pages.');
+      var count = deckMode
+        ? (Array.isArray(extraction.cards) ? extraction.cards.length : 0)
+        : (Array.isArray(extraction.questions) ? extraction.questions.length : 0);
+      if (!count) {
+        throw new Error(deckMode
+          ? 'No question-and-answer cards were found in these pages.'
+          : 'No questions were found in these pages.');
       }
 
       scan.result = extraction;
@@ -1622,10 +1764,14 @@
       scan.progress = 1;
       A.refresh();
       A.toast({
-        title: extraction.questions.length + ' questions extracted',
-        message: target
-          ? 'Review the draft, then add it to ' + target.title + '.'
-          : 'Review the draft, then save it to your library.',
+        title: count + (deckMode
+          ? (count === 1 ? ' card extracted' : ' cards extracted')
+          : (count === 1 ? ' question extracted' : ' questions extracted')),
+        message: deckMode
+          ? 'Review the cards, then save them to the shared deck library.'
+          : target
+            ? 'Review the draft, then add it to ' + target.title + '.'
+            : 'Review the draft, then save it to your library.',
         kind: 'success'
       });
     } catch (err) {
@@ -1654,9 +1800,12 @@
       scan.savingDeck = false;
       scan.deckSaved = true;
       views.updateScanRunner();
+      var savedCount = Array.isArray(scan.result.cards)
+        ? scan.result.cards.length
+        : (scan.result.questions ? scan.result.questions.length : 0);
       A.toast({
         title: 'Saved to decks',
-        message: (Number(data && data.saved) || scan.result.questions.length) +
+        message: (Number(data && data.saved) || savedCount) +
           ' cards added to the scanned deck library.',
         kind: 'success'
       });
@@ -1673,6 +1822,7 @@
 
   views.scanSave = function (start) {
     if (!scan.result || scan.busy) return;
+    if (scan.mode === 'deck') return;
     var target = scanTargetSet();
     var now = new Date().toISOString();
     var questions = scan.result.questions.map(function (q) {

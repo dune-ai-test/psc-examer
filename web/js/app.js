@@ -155,8 +155,8 @@
           ? {
               name: 'scan',
               nav: 'scan',
-              html: views.scan(),
-              title: 'Scan a paper — Padanam'
+              html: views.scan(route.query.mode === 'deck' ? 'deck' : 'set'),
+              title: route.query.mode === 'deck' ? 'Scan deck cards — Padanam' : 'Scan a paper — Padanam'
             }
           : adminOnlyView();
       case 'setup':
@@ -1357,6 +1357,11 @@
     if (input) input.click();
   };
 
+  actions['scan-mode'] = function (btn) {
+    var mode = btn.getAttribute('data-mode') === 'deck' ? 'deck' : 'set';
+    A.go(mode === 'deck' ? '#/scan?mode=deck' : '#/scan');
+  };
+
   actions['scan-run'] = function (btn) {
     if (!requireAdmin()) return;
     return views.scanRun(btn.getAttribute('data-demo') === '1');
@@ -1380,7 +1385,7 @@
   actions['scan-discard'] = function () {
     return A.confirm({
       title: 'Discard this draft?',
-      message: 'The extracted questions and the photos in this draft will be removed. Nothing has been added to your library yet.',
+      message: 'The extracted ' + (scan.mode === 'deck' ? 'cards' : 'questions') + ' and the photos in this draft will be removed. Nothing has been added to your library yet.',
       confirmText: 'Discard draft',
       danger: true
     }).then(function (ok) {

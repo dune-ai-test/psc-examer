@@ -87,6 +87,10 @@ table automatically:
 
 The administrator can press **Save to decks** after a scan. That writes the
 extracted cards to this database without changing the library or the draft.
+The scan screen has a **Question set** / **Deck cards** switch: deck mode uses a
+separate AI prompt that asks for one question and one answer per card instead of
+four options, so plain Q&A pages work as well as marked MCQ papers. The Decks
+screen also links straight to `#/scan?mode=deck`.
 Signed-in users on the web and Android then see those cards in the deck
 library alongside their assigned sets. Card progress still syncs through the
 normal account workspace under `scan:<deckId>:<cardId>` keys. The connection
@@ -213,11 +217,13 @@ bypasses `/api/*`, so account and sync requests always reach the network.
   English and Malayalam versions.
 - **Scanning** — photos are resized in the browser (max 1600 px, JPEG) and sent
   to Gemini, a custom OpenAI-compatible endpoint, or the optional Cloudflare
-  Pages proxy. Nothing is saved until you choose **Create a new set** or
-  **Save into** an existing set; appending keeps that set’s title, subject and
-  previous questions. The administrator can also press **Save to decks** to
-  copy the draft into the separate scanned deck pool. Until the selected
-  provider is configured, the sample extraction demonstrates the flow.
+  Pages proxy. Choose **Question set** to extract four-option MCQs, or **Deck
+  cards** to extract one question and one answer per card. Nothing is saved
+  until you choose **Create a new set**, **Save into** an existing set, or
+  **Save to decks**. Appending keeps that set’s title, subject and previous
+  questions. Deck mode writes only to the separate scanned deck pool and leaves
+  the library untouched. Until the selected provider is configured, the sample
+  extraction demonstrates the flow.
   **Fetch models** loads the live catalog from Gemini, the custom endpoint’s
   `/models` route, or the Pages `/api/models` Function.
 - **Exams** — timed mocks with an absolute deadline (the timer keeps running if

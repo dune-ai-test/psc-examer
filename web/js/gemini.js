@@ -304,7 +304,7 @@
           : 'Gemini returned an empty response. Try fewer pages or another model.');
       }
 
-      var extraction = assembleExtraction(raw);
+      var extraction = opts.mode === 'deck' ? assembleDeckExtraction(raw) : assembleExtraction(raw);
       onStage('validating', 0.88);
       onStage('done', 1);
       return extraction;
@@ -374,7 +374,7 @@
         : 'The endpoint returned an empty response. Try fewer pages or another model.');
     }
 
-    var extraction = assembleExtraction(raw);
+    var extraction = opts.mode === 'deck' ? assembleDeckExtraction(raw) : assembleExtraction(raw);
     onStage('validating', 0.88);
     onStage('done', 1);
     return extraction;
@@ -553,7 +553,7 @@
     }
 
     onStage('structuring', 0.7);
-    var extraction = assembleExtraction(data.text);
+    var extraction = opts.mode === 'deck' ? assembleDeckExtraction(data.text) : assembleExtraction(data.text);
     onStage('validating', 0.88);
     onStage('done', 1);
     return extraction;
@@ -1221,6 +1221,8 @@
 
   /* ── Prompt & extraction assembly ────────────────────── */
   function buildPrompt(opts) {
+    if (opts.mode === 'deck') return buildDeckPrompt(opts);
+
     var subjectList = (Seed.subjects || []).map(function (s) { return s.name; }).join(', ');
     var topicList = (A.MAIN_TOPICS || []).join('; ');
     var languageRule = opts.language === 'en'
@@ -1267,6 +1269,59 @@
     ].filter(Boolean).join('\n');
   }
 
+  /**
+   * Deck cards are one question and one answer. The set prompt above asks for
+   * four options, which is wrong for a plain question-and-answer page, so deck
+   * scans get their own prompt and their own JSON shape.
+   */
+  function buildDeckPrompt(opts) {
+    var subjectList = (Seed.subjects || []).map(function (s) { return s.name; }).join(', ');
+    var topicList = (A.MAIN_TOPICS || []).join('; ');
+    var languageRule = opts.language === 'en'
+      ? 'Extract only the English version of each card. Set "ml" to null.'
+      : 'If the page prints a Malayalam version, extract it in "ml". Otherwise set "ml" to null. The "en" field is required: if a card exists only in Malayalam, put that text in "en".';
+
+    var titleHint = opts.titleHint ? 'The user calls this paper "' + opts.titleHint + '". Use a cleaner version of it as the title if no printed title is visible.' : '';
+    var subjectHint = opts.subject ? 'If the page does not state a subject, prefer "' + opts.subject + '".' : '';
+
+    return [
+      'You are a careful study-card extractor for Kerala PSC (Public Service Commission) revision material.',
+      'Read every supplied page image and extract ALL question-and-answer cards, in reading order.',
+      '',
+      'Return ONLY a JSON object with this exact shape:',
+      '{',
+      '  "title": "paper or chapter title, or a short descriptive title",',
+      '  "subject": "one of: ' + subjectList + '",',
+      '  "mainTopic": "one fixed main topic from this list: ' + topicList + '",',
+      '  "subTopic": "short grouping label for this deck",',
+      '  "cards": [',
+      '    {',
+      '      "en": { "question": "question text", "answer": "the single correct answer", "explanation": "brief reason the answer is correct" },',
+      '      "ml": { "question": "Malayalam question", "answer": "Malayalam answer", "explanation": "Malayalam reason" }',
+      '    }',
+      '  ]',
+      '}',
+      '',
+      'Rules:',
+      '- Each card has exactly one question and one answer. Never return a list of options or an answer index.',
+      '- If the page prints multiple-choice questions, use the text of the correct or marked option as the answer. Do not copy the other options.',
+      '- If the page is a question-and-answer sheet, use the printed answer. If no answer is printed, use your own subject knowledge and give the correct answer.',
+      '- Keep the answer as short as possible while still complete: a name, date, term, number, or one short sentence.',
+      '- Skip cards that have no clear question or no answer.',
+      '- Do not invent a question, and do not merge two questions into one card.',
+      '- ' + languageRule,
+      '- "mainTopic" must exactly match one of the fixed topics above. Never invent a new main topic.',
+      '- "subTopic" is a short label of two to six words in title case. It groups similar decks. Use a cleaner version of the title when unsure.',
+      '- Preserve Malayalam script exactly. Do not transliterate it.',
+      '- Ignore page numbers, instructions, advertisements, and answer-key tables outside the cards.',
+      '- Clean up spacing and broken line wraps. Do not include HTML.',
+      '- Keep explanations to one or two short sentences. If no explanation can be given, use an empty string.',
+      '- If the pages contain no complete question-and-answer cards, return an empty cards array.',
+      titleHint,
+      subjectHint
+    ].filter(Boolean).join('\n');
+  }
+
   function assembleExtraction(raw) {
     var parsed = parseJsonLoose(raw);
     var extraction = normalizeExtraction(parsed);
@@ -1275,6 +1330,17 @@
     }
     extraction.questions = dedupe(extraction.questions);
     if (!extraction.questions.length) throw new Error('The same questions appeared on every page. Try adding a different page.');
+    return extraction;
+  }
+
+  function assembleDeckExtraction(raw) {
+    var parsed = parseJsonLoose(raw);
+    var extraction = normalizeDeckExtraction(parsed);
+    if (!extraction.cards.length) {
+      throw new Error('No question-and-answer cards were found. Make sure both the question and the answer are visible.');
+    }
+    extraction.cards = dedupeCards(extraction.cards);
+    if (!extraction.cards.length) throw new Error('The same cards appeared on every page. Try adding a different page.');
     return extraction;
   }
 
@@ -1356,13 +1422,7 @@
       };
     }).filter(Boolean);
 
-    var subject = clean(payload.subject);
-    var known = (Seed.subjects || []).map(function (s) { return s.name; });
-    if (!known.some(function (name) { return name.toLowerCase() === subject.toLowerCase(); })) {
-      subject = 'General Knowledge';
-    } else {
-      subject = known.filter(function (name) { return name.toLowerCase() === subject.toLowerCase(); })[0];
-    }
+    var subject = normalizeSubject(payload.subject);
 
     return {
       title: clean(payload.title) || '',
@@ -1373,10 +1433,90 @@
     };
   }
 
+  function normalizeDeckExtraction(parsed) {
+    if (!parsed) throw new Error('The model returned no data. Try again.');
+    var payload = parsed;
+    if (Array.isArray(parsed)) payload = { cards: parsed };
+    if (payload.data && typeof payload.data === 'object') payload = payload.data;
+
+    var rawCards = Array.isArray(payload.cards) ? payload.cards : [];
+    if (!rawCards.length && Array.isArray(payload.questions)) rawCards = payload.questions;
+
+    var cards = rawCards.map(function (raw) {
+      if (!raw || typeof raw !== 'object') return null;
+      var enRaw = raw.en || raw.English || raw.english;
+      if (!enRaw) {
+        enRaw = {
+          question: raw.question || raw.questionEn || raw.stem,
+          answer: raw.answer || raw.answerEn || raw.correctAnswer,
+          explanation: raw.explanation || raw.explanationEn
+        };
+      }
+      var enQuestion = clean(enRaw.question || enRaw.stem);
+      var enAnswer = clean(enRaw.answer || enRaw.correctAnswer || enRaw.a);
+      if (!enQuestion || !enAnswer) return null;
+
+      var ml = null;
+      var mlRaw = raw.ml || raw.Malayalam || raw.malayalam;
+      if (mlRaw) {
+        var mlQuestion = clean(mlRaw.question || mlRaw.stem);
+        var mlAnswer = clean(mlRaw.answer || mlRaw.correctAnswer || mlRaw.a);
+        if (mlQuestion && mlAnswer) {
+          ml = {
+            question: mlQuestion,
+            answer: mlAnswer,
+            explanation: clean(mlRaw.explanation)
+          };
+        }
+      }
+
+      return {
+        id: A.uid('card'),
+        en: {
+          question: enQuestion,
+          answer: enAnswer,
+          explanation: clean(enRaw.explanation || raw.explanation)
+        },
+        ml: ml
+      };
+    }).filter(Boolean);
+
+    var subject = normalizeSubject(payload.subject);
+    var title = clean(payload.title) || '';
+
+    return {
+      mode: 'deck',
+      title: title,
+      subject: subject,
+      mainTopic: A.normalizeMainTopic(payload.mainTopic || payload.main_topic, title, subject),
+      subTopic: clean(payload.subTopic || payload.sub_topic) || title || 'General',
+      cards: cards
+    };
+  }
+
+  function normalizeSubject(value) {
+    var subject = clean(value);
+    var known = (Seed.subjects || []).map(function (s) { return s.name; });
+    if (!known.some(function (name) { return name.toLowerCase() === subject.toLowerCase(); })) {
+      return 'General Knowledge';
+    }
+    return known.filter(function (name) { return name.toLowerCase() === subject.toLowerCase(); })[0];
+  }
+
   function dedupe(questions) {
     var seen = {};
     return questions.filter(function (q) {
       var key = q.en.stem.toLowerCase().replace(/[^a-z0-9\u0d00-\u0d7f]+/g, ' ').trim();
+      if (!key || seen[key]) return false;
+      seen[key] = true;
+      return true;
+    });
+  }
+
+  function dedupeCards(cards) {
+    var seen = {};
+    return cards.filter(function (card) {
+      var key = card.en.question.toLowerCase().replace(/[^a-z0-9\u0d00-\u0d7f]+/g, ' ').trim();
       if (!key || seen[key]) return false;
       seen[key] = true;
       return true;
