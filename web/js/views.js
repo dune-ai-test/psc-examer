@@ -15,6 +15,7 @@
   ui.reviewFilter = ui.reviewFilter || 'all';
   ui.showKey = false;
   ui.showOpenaiKey = false;
+  ui.showServerKey = false;
   ui.showSyncToken = false;
 
   var scan = {
@@ -1288,12 +1289,12 @@
       if (provider.id === 'openai') {
         runHint = 'Requests go directly from this browser to <b>' + e(provider.host) + '</b> using <b>' + e(provider.model) + '</b>. Photos are sent only when you press extract.';
       } else if (provider.id === 'pages') {
-        runHint = 'The key stays in Cloudflare. Photos go to this site’s <span class="mono">/api/scan</span> function, which forwards them to <b>' + e(provider.model) + '</b> only when you press extract.';
+        runHint = 'The key stays on the server. Photos go to this site’s <span class="mono">/api/scan</span> function, which forwards them to <b>' + e(provider.model) + '</b> only when you press extract.';
       } else {
         runHint = 'Your key is used directly from this browser. Photos are sent to Google only when you press extract.';
       }
     } else if (provider.id === 'pages') {
-      runHint = e(provider.error || 'The Cloudflare proxy is not ready. Add the provider secret in Cloudflare Pages, then test the connection in Settings.');
+      runHint = e(provider.error || 'The site proxy is not ready. Add the provider, model and key in the admin console, then test the connection in Settings.');
     } else if (provider.id === 'openai') {
       runHint = 'No custom endpoint configured yet. Try the sample, add a base URL and model in Settings, or type questions manually.';
     } else {
@@ -1312,7 +1313,7 @@
 
     var checkProxy = provider.id === 'pages' && !A.gemini.proxy().checked;
     var keyState = checkProxy
-      ? '<div class="key-state"><span class="dot"></span><span>Cloudflare proxy · key stays on the server</span><a href="#/settings">Manage</a></div>'
+      ? '<div class="key-state"><span class="dot"></span><span>Site proxy · key stays on the server</span><a href="#/settings">Manage</a></div>'
       : ready
         ? '<div class="key-state"><span class="dot"></span><span>' + e(provider.short) + ' ready · ' + e(provider.model) + '</span><a href="#/settings">Manage</a></div>'
         : '<div class="key-state is-missing"><span class="dot"></span><span>' + e(provider.short) + ' not configured</span><a href="#/settings">Set up</a></div>';
@@ -1404,7 +1405,7 @@
             (provider.id === 'gemini'
               ? '<p>Images are resized on this device and sent directly to Google for extraction. They are never added to your library, and Padanam has no server of its own.</p>'
               : provider.id === 'pages'
-                ? '<p>Images are resized on this device and sent to the Cloudflare Pages Function at <span class="mono">/api/scan</span>, which forwards them to the provider configured in your Pages settings. They are never added to your library.</p>'
+                ? '<p>Images are resized on this device and sent to this site’s <span class="mono">/api/scan</span> Function, which forwards them to the provider saved in the admin console. They are never added to your library.</p>'
                 : '<p>Images are resized on this device and sent directly to the endpoint you configured for extraction. They are never added to your library, and Padanam has no server of its own.</p>') +
           '</div>' +
         '</aside>' +
@@ -1662,8 +1663,8 @@
     }
     if (!demo && provider.id === 'pages' && !provider.ready) {
       A.toast({
-        title: 'Cloudflare proxy not ready',
-        message: provider.error || 'Add the provider secret in Cloudflare Pages, then test the connection in Settings.',
+        title: 'Site proxy not ready',
+        message: provider.error || 'Add the provider, model and key in the admin console, then test the connection in Settings.',
         kind: 'error'
       });
       return;
@@ -2847,12 +2848,12 @@
     var pagesCatalog = A.gemini.catalog('pages');
     var pagesCatalogHtml = pagesCatalog
       ? pagesCatalog.models.map(function (model) {
-          return '<span class="model-chip mono" title="' + e(model.id) + '">' + e(model.id) + '</span>';
+          return '<button type="button" class="model-chip mono" data-action="use-pages-model" data-model="' + e(model.id) + '" title="Use ' + e(model.id) + '">' + e(model.id) + '</button>';
         }).join('')
       : '';
     var pagesModelStatus = pagesCatalog
-      ? 'Fetched ' + A.plural(pagesCatalog.models.length, 'model') + ' from this site’s /api/models function. The server picks the model used for scans.'
-      : 'Load the list to see which models this site’s Pages function can use.';
+      ? 'Fetched ' + A.plural(pagesCatalog.models.length, 'model') + ' from this site’s /api/models function. Pick one to fill the model field.'
+      : 'Load the list to see which models this site’s server can use, then pick one or type a model name.';
 
     var providerOption = function (id, iconName, title, note) {
       var on = provider.id === id;
@@ -2874,12 +2875,13 @@
     var providerStatus;
     if (provider.id === 'pages') {
       if (!proxy.checked) {
-        providerStatus = 'Cloudflare proxy selected. Run Test connection after saving to check the server secrets.';
+        providerStatus = 'Site proxy selected. Checking the saved AI settings…';
       } else if (proxy.ready) {
-        providerStatus = 'Cloudflare proxy is ready with ' + proxy.model + ' via ' +
-          (proxy.provider === 'openai' ? 'an OpenAI-compatible endpoint' : 'Gemini') + '.';
+        providerStatus = 'Site proxy is ready with ' + proxy.model + ' via ' +
+          (proxy.provider === 'openai' ? 'an OpenAI-compatible endpoint' : 'Gemini') +
+          (proxy.source === 'database' ? ', saved in Neon.' : ', from Cloudflare env vars.');
       } else {
-        providerStatus = proxy.error || 'The Cloudflare proxy is not configured yet. Add the secrets in Cloudflare Pages.';
+        providerStatus = proxy.error || 'The site proxy is not configured yet. Add the provider, model and key below.';
       }
     } else {
       providerStatus = provider.ready
@@ -2939,7 +2941,7 @@
           (adminConsole ? '<form class="card settings-card" data-form="settings" id="settingsForm">' +
             '<div class="settings-card-head">' +
               '<span class="settings-icon">' + icon('spark') + '</span>' +
-              '<div><h2>AI scanning</h2><p>Currently using <b>' + e(provider.label) + '</b>. Choose Gemini, an OpenAI-compatible endpoint, or a Cloudflare Pages proxy that keeps the key on the server.</p></div>' +
+              '<div><h2>AI scanning</h2><p>Currently using <b>' + e(provider.label) + '</b>. Choose Gemini, an OpenAI-compatible endpoint, or the site proxy that saves its key in Neon.</p></div>' +
               '<span class="chip ' + (providerReady ? 'chip--success' : 'chip--amber') + '">' + (providerReady ? 'Ready' : (provider.id === 'pages' && !proxy.checked ? 'Check' : 'Not set')) + '</span>' +
             '</div>' +
             '<div class="field">' +
@@ -2947,7 +2949,7 @@
               '<div class="mode-grid provider-grid" role="group" aria-label="Scanning provider">' +
                 providerOption('gemini', 'spark', 'Gemini', 'Google AI Studio key') +
                 providerOption('openai', 'cloud', 'OpenAI-compatible', 'Custom base URL and model') +
-                providerOption('pages', 'lock', 'Cloudflare Pages', 'Key stays in Pages secrets') +
+                providerOption('pages', 'lock', 'Site proxy', 'Key saved in Neon') +
               '</div>' +
               '<input type="hidden" name="provider" value="' + provider.id + '">' +
               '<span class="field-hint" id="settingsProviderStatus">' + e(providerStatus) + '</span>' +
@@ -2999,15 +3001,45 @@
               '</div>' +
             '</div>' +
 
-            '<div class="provider-panel" data-provider-panel="pages"' + (provider.id === 'pages' ? '' : ' hidden') + '>' +
+            '<div class="provider-panel" data-provider-panel="pages" data-proxy-filled="' + (proxy.checked ? '1' : '0') + '"' + (provider.id === 'pages' ? '' : ' hidden') + '>' +
               '<div class="settings-note" style="margin-top:0">' + icon('lock') +
-                '<span>The browser never sees an API key in this mode. A Pages Function at <span class="mono">/api/scan</span> reads <span class="mono">GEMINI_API_KEY</span> or <span class="mono">OPENAI_API_KEY</span> from your Cloudflare project secrets and forwards the pages.</span>' +
+                '<span>The browser never sees this key. It is saved in the site database (Neon) and used by <span class="mono">/api/scan</span> and <span class="mono">/api/models</span>. Cloudflare env vars are used only until the first save here.</span>' +
               '</div>' +
-              '<div class="about-list" style="margin-top:12px">' +
-                '<div><span>Server provider</span><strong data-proxy-backend>' + e(proxy.provider === 'openai' ? 'OpenAI-compatible' : proxy.provider === 'gemini' ? 'Gemini' : 'Not checked yet') + '</strong></div>' +
-                '<div><span>Model</span><strong class="mono" data-proxy-model>' + e(proxy.model || 'Set in Pages') + '</strong></div>' +
+              '<div class="form-grid" style="margin-top:14px">' +
+                '<div class="field">' +
+                  '<label class="field-label" for="serverProvider">Server provider</label>' +
+                  '<select class="select" id="serverProvider" name="serverProvider" data-server-provider>' +
+                    '<option value="gemini"' + (proxy.provider !== 'openai' ? ' selected' : '') + '>Gemini</option>' +
+                    '<option value="openai"' + (proxy.provider === 'openai' ? ' selected' : '') + '>OpenAI-compatible</option>' +
+                  '</select>' +
+                '</div>' +
+                '<div class="field">' +
+                  '<div class="field-label-row">' +
+                    '<label class="field-label" for="serverModel">Model</label>' +
+                    '<button type="button" class="btn btn-ghost btn-sm model-fetch" data-action="fetch-models" data-provider="pages">' + icon('refresh') + ' Fetch models</button>' +
+                  '</div>' +
+                  '<input class="input" id="serverModel" name="serverModel" list="serverModelList" autocomplete="off" spellcheck="false" placeholder="gemini-2.5-flash" value="' + e(proxy.model) + '">' +
+                  '<datalist id="serverModelList"></datalist>' +
+                '</div>' +
+              '</div>' +
+              '<div class="field" style="margin-top:14px" data-server-openai' + (proxy.provider === 'openai' ? '' : ' hidden') + '>' +
+                '<label class="field-label" for="serverBaseUrl">Base URL</label>' +
+                '<input class="input" id="serverBaseUrl" name="serverBaseUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://api.openai.com/v1" value="' + e(proxy.baseUrl) + '">' +
+                '<span class="field-hint">Only used with an OpenAI-compatible provider. <span class="mono">/chat/completions</span> is added automatically.</span>' +
+              '</div>' +
+              '<div class="field" style="margin-top:14px">' +
+                '<label class="field-label" for="serverKey">API key</label>' +
+                '<div class="key-field">' +
+                  '<input class="input" id="serverKey" name="serverKey" type="' + (ui.showServerKey ? 'text' : 'password') + '" autocomplete="off" spellcheck="false" placeholder="' + e(proxy.hasKey ? 'Key already set — leave blank to keep it' : 'Paste the API key') + '">' +
+                  '<button type="button" class="key-toggle" data-action="toggle-key" data-target="serverKey" aria-label="' + (ui.showServerKey ? 'Hide API key' : 'Show API key') + '">' + icon('eye') + '</button>' +
+                '</div>' +
+                '<span class="field-hint">Write-only: the saved key is never sent back to this browser. Leave it blank to keep the existing key when the provider is unchanged.</span>' +
+              '</div>' +
+              '<div class="about-list" style="margin-top:14px">' +
+                '<div><span>Saved in</span><strong data-proxy-source>' + e(proxy.source === 'database' ? 'Neon (saved here)' : proxy.source === 'environment' ? 'Cloudflare env vars' : 'Not checked yet') + '</strong></div>' +
+                '<div><span>Key on server</span><strong data-proxy-key>' + e(proxy.checked ? (proxy.hasKey ? 'Saved' : 'Not set') : 'Not checked yet') + '</strong></div>' +
                 '<div><span>Endpoint</span><strong class="mono" data-proxy-host>' + e(proxy.host || '/api/scan') + '</strong></div>' +
-                '<div><span>Keys in this browser</span><strong>None</strong></div>' +
+                '<div><span>Last saved</span><strong data-proxy-updated>' + e(proxy.updatedMs ? A.fmtRelative(proxy.updatedMs) + (proxy.updatedBy ? ' by ' + proxy.updatedBy : '') : 'Not checked yet') + '</strong></div>' +
               '</div>' +
               '<div class="field" style="margin-top:14px">' +
                 '<div class="field-label-row">' +
@@ -3017,7 +3049,11 @@
                 '<div class="model-catalog" id="pagesModelCatalog">' + pagesCatalogHtml + '</div>' +
                 '<span class="field-hint model-status" id="pagesModelStatus" aria-live="polite">' + e(pagesModelStatus) + '</span>' +
               '</div>' +
-              '<p class="field-hint" style="margin-top:10px">Set <span class="mono">SCAN_PROVIDER</span> plus the matching key in <b>Cloudflare Pages → Settings → Variables and Secrets</b>, then redeploy. <a class="link" href="https://developers.cloudflare.com/pages/functions/bindings/#secrets" target="_blank" rel="noopener">Cloudflare guide ↗</a></p>' +
+              '<div class="form-actions" style="margin-top:14px">' +
+                (proxy.source === 'database' ? '<button type="button" class="btn btn-ghost" data-action="reset-server-ai">' + icon('refresh') + ' Use Cloudflare env vars</button>' : '') +
+                '<span class="muted" style="font-size:10.5px">Saving the form below also saves these server fields.</span>' +
+              '</div>' +
+              '<p class="field-hint" style="margin-top:10px">No Neon database? You can still set <span class="mono">SCAN_PROVIDER</span> plus the matching key in <b>Cloudflare Pages → Settings → Variables and Secrets</b>. <a class="link" href="https://developers.cloudflare.com/pages/functions/bindings/#secrets" target="_blank" rel="noopener">Cloudflare guide ↗</a></p>' +
             '</div>' +
 
             '<div class="form-actions" style="margin-top:18px">' +
@@ -3027,7 +3063,7 @@
             '</div>' +
             '<div class="test-result" id="keyTestResult"></div>' +
             '<div class="settings-note">' + icon('lock') +
-              '<span>Direct Gemini or custom keys are stored in this browser and can be read by anything running on this origin. The Cloudflare Pages proxy keeps its key in encrypted Pages secrets instead. No key is ever included in exports.</span>' +
+              '<span>Direct Gemini or custom keys are stored in this browser and can be read by anything running on this origin. The site proxy saves its key in the Neon database and never returns it to the browser. No key is ever included in exports.</span>' +
             '</div>' +
           '</form>' : '') +
 
@@ -3105,7 +3141,7 @@
               '<div><span>Storage</span><strong>localStorage</strong></div>' +
               '<div><span>Cloud sync</span><strong>' + (A.auth && A.auth.isAccount() ? 'Account · Neon' : 'Optional · Neon') + '</strong></div>' +
               '<div><span>Questions</span><strong>English + Malayalam</strong></div>' +
-              '<div><span>Scanning</span><strong>Gemini, custom API or Cloudflare proxy</strong></div>' +
+              '<div><span>Scanning</span><strong>Gemini, custom API or site proxy</strong></div>' +
               '<div><span>Accounts</span><strong>' + (A.auth && A.auth.isAccount() ? 'Admin + users' : 'Local mode') + '</strong></div>' +
             '</div>' +
           '</section>' +
@@ -3115,7 +3151,7 @@
           (adminConsole
             ? '<section class="card note-card">' +
                 '<h3>' + icon('scan') + ' Connecting a scanner</h3>' +
-                '<p>For Gemini, create a key in Google AI Studio. For a custom endpoint, paste its base URL, optional key and model. For a deployed site, choose Cloudflare Pages so the key stays in your Pages secrets.</p>' +
+                '<p>For Gemini, create a key in Google AI Studio. For a custom endpoint, paste its base URL, optional key and model. On a deployed site, choose Site proxy so the key stays in the database.</p>' +
                 '<a class="link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Open Google AI Studio ↗</a>' +
               '</section>' +
               '<section class="card note-card">' +

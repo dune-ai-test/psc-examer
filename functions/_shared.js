@@ -196,6 +196,10 @@ export async function ensureSchema(config) {
         'updated_ms BIGINT NOT NULL, payload JSONB NOT NULL, PRIMARY KEY (workspace, card_key))'
     },
     {
+      query: 'CREATE TABLE IF NOT EXISTS padanam_ai_settings (' +
+        'id TEXT PRIMARY KEY, payload JSONB NOT NULL, updated_ms BIGINT NOT NULL)'
+    },
+    {
       query: 'CREATE INDEX IF NOT EXISTS padanam_attempts_finished_idx ' +
         'ON padanam_attempts (workspace, finished_ms DESC)'
     }
@@ -232,6 +236,43 @@ export async function ensureDeckSchema(config) {
     throw err;
   });
   return deckSchemaReady;
+}
+
+/* ── Site AI settings ──────────────────────────────────── */
+/**
+ * The administrator saves the scanner provider, model, endpoint and key in
+ * Neon, so changing the model no longer needs a redeploy. The key is read only
+ * by the Functions and is never included in a browser or API response.
+ */
+export async function readAiSettings(config) {
+  const result = await neonQuery(
+    config,
+    'SELECT payload, updated_ms FROM padanam_ai_settings WHERE id = \'ai\' LIMIT 1',
+    []
+  );
+  const row = rows(result)[0];
+  const payload = row ? payloadValue(row.payload) : null;
+  if (!payload || typeof payload !== 'object') return null;
+  if (!payload.updatedMs && row && row.updated_ms) {
+    payload.updatedMs = Number(row.updated_ms) || 0;
+  }
+  return payload;
+}
+
+export async function writeAiSettings(config, payload) {
+  const updatedMs = Number(payload && payload.updatedMs) || Date.now();
+  const body = Object.assign({}, payload, { updatedMs: updatedMs });
+  await neonQuery(
+    config,
+    'INSERT INTO padanam_ai_settings (id, payload, updated_ms) VALUES ($1, $2::jsonb, $3) ' +
+      'ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_ms = EXCLUDED.updated_ms',
+    ['ai', JSON.stringify(body), updatedMs]
+  );
+  return body;
+}
+
+export async function deleteAiSettings(config) {
+  await neonQuery(config, 'DELETE FROM padanam_ai_settings WHERE id = \'ai\'', []);
 }
 
 /* ── Neon client ───────────────────────────────────────── */

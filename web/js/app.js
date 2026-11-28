@@ -339,6 +339,19 @@
       console.error('Padanam mount error', err);
     }
 
+    if (view.name === 'admin' && isAdmin() && A.gemini) {
+      var proxy = A.gemini.proxy();
+      if (A.state.settings.provider === 'pages' && !proxy.checked && !proxy.checking) {
+        A.gemini.refreshProxy(true).then(function () {
+          var form = document.getElementById('settingsForm');
+          if (!form) return;
+          updateProxyPanel(form);
+          var status = document.getElementById('settingsProviderStatus');
+          if (status) status.textContent = settingsStatusText(form, 'pages');
+        });
+      }
+    }
+
     if (opts.preserveScroll) window.scrollTo(0, scroll);
     else window.scrollTo(0, 0);
 
@@ -904,12 +917,13 @@
   function settingsStatusText(form, provider) {
     if (provider === 'pages') {
       var proxy = A.gemini.proxy();
-      if (!proxy.checked) return 'Run Test connection after saving to check the Cloudflare proxy.';
+      if (!proxy.checked) return 'Checking the saved AI settings on this site…';
       if (proxy.ready) {
-        return 'Cloudflare proxy is ready with ' + proxy.model + ' via ' +
-          (proxy.provider === 'openai' ? 'an OpenAI-compatible endpoint.' : 'Gemini.');
+        return 'Site proxy is ready with ' + proxy.model + ' via ' +
+          (proxy.provider === 'openai' ? 'an OpenAI-compatible endpoint' : 'Gemini') +
+          (proxy.source === 'database' ? ', saved in Neon.' : ', from Cloudflare env vars.');
       }
-      return proxy.error || 'The Cloudflare proxy is not configured. Add the provider secret in Cloudflare Pages.';
+      return proxy.error || 'The site proxy is not configured. Add a provider, model and key below.';
     }
 
     if (provider === 'openai') {
@@ -929,25 +943,70 @@
       : 'Add a Gemini API key to enable scanning.';
   }
 
+  function serverProviderValue(form) {
+    var select = form && form.elements.serverProvider;
+    return select && select.value === 'openai' ? 'openai' : 'gemini';
+  }
+
+  function toggleServerBaseUrl(form) {
+    var panel = form && form.querySelector('[data-provider-panel="pages"]');
+    if (!panel) return;
+    var box = panel.querySelector('[data-server-openai]');
+    if (box) box.hidden = serverProviderValue(form) !== 'openai';
+  }
+
   function updateProxyPanel(form) {
     var proxy = A.gemini.proxy();
     var panel = form && form.querySelector('[data-provider-panel="pages"]');
 
     if (panel) {
-      var backend = panel.querySelector('[data-proxy-backend]');
-      if (backend) {
-        backend.textContent = proxy.provider === 'openai'
-          ? 'OpenAI-compatible'
-          : proxy.provider === 'gemini'
-            ? 'Gemini'
-            : proxy.checked ? 'Not configured' : 'Not checked yet';
+      if (proxy.checked && panel.getAttribute('data-proxy-filled') !== '1') {
+        var providerSelect = panel.querySelector('[name="serverProvider"]');
+        if (providerSelect) providerSelect.value = proxy.provider === 'openai' ? 'openai' : 'gemini';
+        var modelInput = panel.querySelector('[name="serverModel"]');
+        if (modelInput) modelInput.value = proxy.model || '';
+        var baseInput = panel.querySelector('[name="serverBaseUrl"]');
+        if (baseInput) baseInput.value = proxy.baseUrl || '';
+        panel.setAttribute('data-proxy-filled', '1');
+        toggleServerBaseUrl(form);
       }
 
-      var model = panel.querySelector('[data-proxy-model]');
-      if (model) model.textContent = proxy.model || (proxy.checked ? 'Not set' : 'Set in Pages');
+      var source = panel.querySelector('[data-proxy-source]');
+      if (source) {
+        source.textContent = !proxy.checked
+          ? 'Not checked yet'
+          : proxy.source === 'database'
+            ? 'Neon (saved here)'
+            : proxy.source === 'environment'
+              ? 'Cloudflare env vars'
+              : 'Not saved yet';
+      }
+
+      var key = panel.querySelector('[data-proxy-key]');
+      if (key) {
+        key.textContent = !proxy.checked
+          ? 'Not checked yet'
+          : proxy.hasKey
+            ? 'Saved'
+            : 'Not set';
+      }
 
       var host = panel.querySelector('[data-proxy-host]');
       if (host) host.textContent = proxy.host || '/api/scan';
+
+      var updated = panel.querySelector('[data-proxy-updated]');
+      if (updated) {
+        updated.textContent = proxy.updatedMs
+          ? A.fmtRelative(proxy.updatedMs) + (proxy.updatedBy ? ' by ' + proxy.updatedBy : '')
+          : 'Not checked yet';
+      }
+
+      var keyInput = panel.querySelector('[name="serverKey"]');
+      if (keyInput) {
+        keyInput.placeholder = proxy.hasKey
+          ? 'Key already set — leave blank to keep it'
+          : 'Paste the API key';
+      }
     }
 
     if (!form || !form.elements.provider || form.elements.provider.value !== 'pages') return;
@@ -1012,7 +1071,14 @@
     var catalog = document.getElementById('pagesModelCatalog');
     if (catalog) {
       catalog.innerHTML = models.map(function (model) {
-        return '<span class="model-chip mono" title="' + A.esc(model.id) + '">' + A.esc(model.id) + '</span>';
+        return '<button type="button" class="model-chip mono" data-action="use-pages-model" data-model="' + A.esc(model.id) + '" title="Use ' + A.esc(model.id) + '">' + A.esc(model.id) + '</button>';
+      }).join('');
+    }
+    var list = document.getElementById('serverModelList');
+    if (list) {
+      list.innerHTML = models.map(function (model) {
+        return '<option value="' + A.esc(model.id) + '">' +
+          (model.label && model.label !== model.id ? A.esc(model.label) : '') + '</option>';
       }).join('');
     }
     var backend = result && result.provider
@@ -1038,10 +1104,13 @@
 
     var status = document.getElementById('settingsProviderStatus');
     if (status) status.textContent = settingsStatusText(form, provider);
+    toggleServerBaseUrl(form);
 
     if (provider === 'pages') {
-      if (status) status.textContent = 'Checking the Cloudflare proxy…';
+      if (status) status.textContent = 'Checking the saved AI settings on this site…';
       updateProxyPanel(form);
+      var pagesPanel = form.querySelector('[data-provider-panel="pages"]');
+      if (pagesPanel) pagesPanel.setAttribute('data-proxy-filled', '0');
       A.gemini.refreshProxy(true).then(function () {
         if (status) status.textContent = settingsStatusText(form, 'pages');
         updateProxyPanel(form);
@@ -1094,9 +1163,11 @@
     var targetId = (btn && btn.getAttribute('data-target')) || 'apiKey';
     var input = document.getElementById(targetId);
     var isCustom = targetId === 'openaiKey';
-    if (isCustom) A.ui.showOpenaiKey = !A.ui.showOpenaiKey;
+    var isServer = targetId === 'serverKey';
+    if (isServer) A.ui.showServerKey = !A.ui.showServerKey;
+    else if (isCustom) A.ui.showOpenaiKey = !A.ui.showOpenaiKey;
     else A.ui.showKey = !A.ui.showKey;
-    var shown = isCustom ? A.ui.showOpenaiKey : A.ui.showKey;
+    var shown = isServer ? A.ui.showServerKey : isCustom ? A.ui.showOpenaiKey : A.ui.showKey;
     if (input) input.type = shown ? 'text' : 'password';
     if (btn) btn.setAttribute('aria-label', shown ? 'Hide API key' : 'Show API key');
   };
@@ -1222,20 +1293,20 @@
     }
 
     if (provider === 'pages') {
-      start('Contacting this site’s <b>/api/scan</b> function. The key stays in Cloudflare…');
+      start('Contacting this site’s <b>/api/scan</b> function. The key stays on the server…');
 
       return A.gemini.testProxy().then(function (result) {
         var status = document.getElementById('settingsProviderStatus');
         if (status) status.textContent = settingsStatusText(form, 'pages');
         updateProxyPanel(form);
         out.innerHTML = noteBox('success', 'check-circle',
-          'The Cloudflare proxy works with <b>' + A.esc(result.model || 'the server model') + '</b> via <b>' + A.esc(result.host || 'this site') + '</b>. It replied “' + A.esc(String(result.text || 'OK').slice(0, 30)) + '”.');
-        A.toast({ title: 'Cloudflare proxy works', message: 'The API key stays in Pages secrets.', kind: 'success' });
+          'The site proxy works with <b>' + A.esc(result.model || 'the server model') + '</b> via <b>' + A.esc(result.host || 'this site') + '</b>. It replied “' + A.esc(String(result.text || 'OK').slice(0, 30)) + '”.');
+        A.toast({ title: 'Site proxy works', message: 'The API key stays on the server.', kind: 'success' });
       }).catch(function (err) {
         var status = document.getElementById('settingsProviderStatus');
         if (status) status.textContent = settingsStatusText(form, 'pages');
         updateProxyPanel(form);
-        out.innerHTML = noteBox('danger', 'alert', A.esc(err && err.message ? err.message : 'The Cloudflare proxy could not be tested.'));
+        out.innerHTML = noteBox('danger', 'alert', A.esc(err && err.message ? err.message : 'The site proxy could not be tested.'));
       }).then(finish);
     }
 
@@ -1340,6 +1411,60 @@
     }).then(function () {
       btn.disabled = false;
       btn.innerHTML = original;
+    });
+  };
+
+  actions['use-pages-model'] = function (btn) {
+    var model = btn.getAttribute('data-model') || '';
+    var input = document.getElementById('serverModel');
+    if (!input || !model) return;
+    input.value = model;
+    var panel = input.closest('[data-provider-panel="pages"]');
+    if (panel) panel.setAttribute('data-proxy-filled', '1');
+    setModelStatus('pages', 'Model set to ' + model + '. Save settings to use it for scans.', 'success');
+    try { input.focus(); } catch (err) { /* focus is best-effort */ }
+  };
+
+  actions['reset-server-ai'] = function (btn) {
+    if (!requireAdmin()) return;
+    if (!A.auth || !A.auth.isAccount || !A.auth.isAccount()) {
+      A.toast({
+        title: 'Deployed site only',
+        message: 'Server AI settings are saved on the deployed site, not in local mode.',
+        kind: 'info'
+      });
+      return Promise.resolve();
+    }
+
+    return A.confirm({
+      title: 'Use Cloudflare env vars?',
+      message: 'This removes the AI settings saved in Neon. The site falls back to SCAN_PROVIDER and the matching key in Cloudflare Pages.',
+      confirmText: 'Remove saved settings',
+      danger: true
+    }).then(function (ok) {
+      if (!ok) return;
+      var original = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner spinner--sm"></span> Resetting…';
+      return A.gemini.resetServerSettings().then(function () {
+        A.toast({
+          title: 'Saved settings removed',
+          message: 'The site will use Cloudflare env vars until you save new settings.',
+          kind: 'success'
+        });
+        A.refresh();
+      }).catch(function (err) {
+        A.toast({
+          title: 'Could not reset',
+          message: err && err.message ? err.message : 'The saved settings were not changed.',
+          kind: 'error'
+        });
+      }).then(function () {
+        if (btn && btn.isConnected) {
+          btn.disabled = false;
+          btn.innerHTML = original;
+        }
+      });
     });
   };
 
@@ -1582,6 +1707,15 @@
     var openaiUrl = trim(field(form, 'openaiUrl'));
     var openaiKey = trim(field(form, 'openaiKey'));
     var openaiModel = trim(field(form, 'openaiModel'));
+    var server = provider === 'pages'
+      ? {
+          provider: serverProviderValue(form),
+          model: trim(field(form, 'serverModel')),
+          baseUrl: trim(field(form, 'serverBaseUrl')),
+          apiKey: trim(field(form, 'serverKey'))
+        }
+      : null;
+    var saveServer = !!(server && A.auth && A.auth.isAccount && A.auth.isAccount());
 
     if (provider === 'openai' && openaiUrl) {
       try {
@@ -1596,6 +1730,19 @@
       }
     }
 
+    if (saveServer && !server.model) {
+      A.toast({
+        title: 'Add the server model',
+        message: 'The site proxy needs a model name before it can scan.',
+        kind: 'error'
+      });
+      var modelInput = form.elements.serverModel;
+      if (modelInput) {
+        try { modelInput.focus(); } catch (ignore) { /* focus is best-effort */ }
+      }
+      return;
+    }
+
     A.state.settings.provider = provider;
     A.state.settings.apiKey = apiKey;
     A.state.settings.model = model;
@@ -1603,40 +1750,63 @@
     A.state.settings.openaiKey = openaiKey;
     A.state.settings.openaiModel = openaiModel;
     A.save();
-    A.refresh();
 
-    var active = A.gemini.provider(A.state.settings);
-    var message;
-    var kind = active.ready ? 'success' : 'info';
-    if (provider === 'pages') {
-      var proxy = A.gemini.proxy();
-      if (!proxy.checked) {
-        message = 'Cloudflare proxy selected. Run Test connection to check the Pages secrets.';
-        kind = 'info';
-      } else if (proxy.ready) {
-        message = 'Cloudflare proxy is ready with ' + proxy.model + ' via ' + proxy.host + '.';
-      } else {
-        message = proxy.error || 'The Cloudflare proxy is not configured. Add the provider secret in Cloudflare Pages.';
-        kind = 'info';
-      }
-    } else if (provider === 'openai') {
-      message = active.ready
-        ? 'Custom scanning is ready with ' + openaiModel + ' via ' + active.host + '.'
-        : !openaiUrl
-          ? 'Add an OpenAI-compatible base URL to enable custom scanning.'
-          : !openaiModel
-            ? 'Add a model name to enable custom scanning.'
-            : 'Custom scanning is not ready yet.';
-    } else {
-      message = apiKey
-        ? 'Gemini scanning is ready with ' + model + '.'
-        : 'No key saved. Scanning will use the sample until you add one.';
+    var job = Promise.resolve(null);
+    if (saveServer) {
+      job = A.gemini.saveServerSettings(server).then(function () {
+        return { ok: true };
+      }).catch(function (err) {
+        return {
+          ok: false,
+          error: err && err.message ? err.message : 'The server did not save the settings.'
+        };
+      });
+    } else if (server) {
+      job = Promise.resolve({ skipped: true });
     }
 
-    A.toast({
-      title: 'Settings saved',
-      message: message,
-      kind: kind
+    return job.then(function (result) {
+      A.refresh();
+      var active = A.gemini.provider(A.state.settings);
+      var message;
+      var kind = active.ready ? 'success' : 'info';
+      if (provider === 'pages') {
+        if (result && result.ok) {
+          var proxy = A.gemini.proxy();
+          if (proxy.ready) {
+            message = 'Site proxy saved in Neon with ' + proxy.model + ' via ' +
+              (proxy.provider === 'openai' ? 'an OpenAI-compatible endpoint.' : 'Gemini.');
+          } else {
+            message = proxy.error || 'Server settings saved, but the proxy is not ready yet.';
+            kind = 'info';
+          }
+        } else if (result && result.skipped) {
+          message = 'Provider saved in this browser. Server AI settings need the deployed site with an admin account.';
+          kind = 'info';
+        } else {
+          message = 'Provider saved in this browser, but the server settings were not saved: ' +
+            (result && result.error ? result.error : 'unknown error');
+          kind = 'error';
+        }
+      } else if (provider === 'openai') {
+        message = active.ready
+          ? 'Custom scanning is ready with ' + openaiModel + ' via ' + active.host + '.'
+          : !openaiUrl
+            ? 'Add an OpenAI-compatible base URL to enable custom scanning.'
+            : !openaiModel
+              ? 'Add a model name to enable custom scanning.'
+              : 'Custom scanning is not ready yet.';
+      } else {
+        message = apiKey
+          ? 'Gemini scanning is ready with ' + model + '.'
+          : 'No key saved. Scanning will use the sample until you add one.';
+      }
+
+      A.toast({
+        title: kind === 'error' ? 'Settings partly saved' : 'Settings saved',
+        message: message,
+        kind: kind
+      });
     });
   }
 
@@ -2112,6 +2282,11 @@
     var target = event.target;
     if (!target || !target.matches) return;
 
+    if (target.closest && target.closest('[data-provider-panel="pages"]')) {
+      var pagesPanel = target.closest('[data-provider-panel="pages"]');
+      pagesPanel.setAttribute('data-proxy-filled', '1');
+    }
+
     if (target.matches('[data-library-search]')) {
       var value = target.value;
       window.clearTimeout(searchTimer);
@@ -2151,6 +2326,15 @@
 
     if (target.matches('[data-scan-field]')) {
       views.scanField(target.getAttribute('data-scan-field'), target.value);
+      return;
+    }
+
+    if (target.id === 'serverProvider') {
+      var panel = target.form && target.form.querySelector('[data-provider-panel="pages"]');
+      if (panel) panel.setAttribute('data-proxy-filled', '1');
+      toggleServerBaseUrl(target.form);
+      var status = document.getElementById('settingsProviderStatus');
+      if (status) status.textContent = settingsStatusText(target.form, 'pages');
       return;
     }
 

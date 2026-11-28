@@ -2,7 +2,7 @@
    Padanam web — AI scanning
    Photos are compressed in the browser, then sent straight
    to Gemini, a user-supplied OpenAI-compatible endpoint, or
-   the optional secure Cloudflare Pages proxy. They are never
+   the optional secure site proxy. They are never
    stored.
    ========================================================= */
 (function () {
@@ -30,6 +30,11 @@
     provider: '',
     model: '',
     host: '',
+    baseUrl: '',
+    hasKey: false,
+    source: '',
+    updatedMs: 0,
+    updatedBy: '',
     error: ''
   };
 
@@ -107,6 +112,14 @@
 
     testProxy: function () {
       return testProxy();
+    },
+
+    saveServerSettings: function (settings) {
+      return saveServerSettings(settings);
+    },
+
+    resetServerSettings: function () {
+      return resetServerSettings();
     },
 
     classify: function (opts) {
@@ -380,12 +393,17 @@
     return extraction;
   }
 
-  /* ── Cloudflare Pages proxy ──────────────────────────── */
+  /* ── Site proxy (Pages Function + Neon settings) ─────── */
   function applyProxyInfo(data) {
     proxyState.ready = !!(data && data.ready === true);
     proxyState.provider = String((data && data.provider) || '');
     proxyState.model = String((data && data.model) || '');
     proxyState.host = String((data && data.host) || '');
+    proxyState.baseUrl = String((data && data.baseUrl) || '');
+    proxyState.hasKey = !!(data && data.hasKey);
+    proxyState.source = String((data && data.source) || '');
+    proxyState.updatedMs = Number((data && data.updatedMs) || 0);
+    proxyState.updatedBy = String((data && data.updatedBy) || '');
     proxyState.error = String((data && data.error) || '');
   }
 
@@ -394,7 +412,7 @@
       proxyState.checked = true;
       proxyState.available = false;
       proxyState.ready = false;
-      proxyState.error = 'The Cloudflare proxy only works on a deployed http(s) site.';
+      proxyState.error = 'The site proxy only works on a deployed http(s) site.';
       return Promise.resolve(proxyState);
     }
     if (proxyState.checking) return proxyState.promise;
@@ -403,7 +421,7 @@
       proxyState.checked = true;
       proxyState.available = false;
       proxyState.ready = false;
-      proxyState.error = 'This browser cannot call the Cloudflare proxy.';
+      proxyState.error = 'This browser cannot call the site proxy.';
       return Promise.resolve(proxyState);
     }
 
@@ -412,9 +430,14 @@
     var controller = new AbortController();
     var timer = window.setTimeout(function () { controller.abort(); }, 12000);
 
+    var headers = { Accept: 'application/json' };
+    if (A.auth && A.auth.isAdmin && A.auth.isAdmin() && A.auth.token && A.auth.token()) {
+      headers.Authorization = 'Bearer ' + A.auth.token();
+    }
+
     proxyState.promise = fetch(PROXY_URL, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: headers,
       cache: 'no-store',
       signal: controller.signal
     }).then(function (response) {
@@ -425,8 +448,8 @@
           proxyState.available = false;
           proxyState.ready = false;
           proxyState.error = response.status === 404
-            ? 'No Cloudflare proxy was found at /api/scan. Deploy the functions folder with the site.'
-            : 'The Cloudflare proxy did not return a valid response.';
+            ? 'No site proxy was found at /api/scan. Deploy the functions folder with the site.'
+            : 'The site proxy did not return a valid response.';
           return proxyState;
         }
         applyProxyInfo(data);
@@ -437,8 +460,8 @@
       proxyState.available = false;
       proxyState.ready = false;
       proxyState.error = err && err.name === 'AbortError'
-        ? 'The Cloudflare proxy did not respond in time.'
-        : 'Could not reach the Cloudflare proxy on this site.';
+        ? 'The site proxy did not respond in time.'
+        : 'Could not reach the site proxy on this site.';
       return proxyState;
     }).then(function (result) {
       window.clearTimeout(timer);
@@ -451,7 +474,7 @@
   }
 
   async function testProxy() {
-    if (typeof fetch !== 'function') throw new Error('This browser cannot call the Cloudflare proxy.');
+    if (typeof fetch !== 'function') throw new Error('This browser cannot call the site proxy.');
     var controller = new AbortController();
     var timer = window.setTimeout(function () { controller.abort(); }, 45000);
     try {
@@ -467,11 +490,11 @@
         proxyState.available = true;
         proxyState.ready = false;
         proxyState.error = String((data && data.error) || '');
-        throw new Error(proxyState.error || 'The Cloudflare proxy returned HTTP ' + response.status + '.');
+        throw new Error(proxyState.error || 'The site proxy returned HTTP ' + response.status + '.');
       }
       if (!data.text) {
         proxyState.ready = false;
-        throw new Error('The Cloudflare proxy answered, but the reply was empty.');
+        throw new Error('The site proxy answered, but the reply was empty.');
       }
 
       proxyState.checked = true;
@@ -489,11 +512,33 @@
         host: proxyState.host
       };
     } catch (err) {
-      if (err.name === 'AbortError') throw new Error('The Cloudflare proxy test timed out.');
+      if (err.name === 'AbortError') throw new Error('The site proxy test timed out.');
       throw err;
     } finally {
       window.clearTimeout(timer);
     }
+  }
+
+  async function saveServerSettings(settings) {
+    if (!A.auth || !A.auth.isAccount || !A.auth.isAccount()) {
+      throw new Error('Sign in to the deployed site to save server AI settings.');
+    }
+    var data = await A.auth.api('./api/ai-settings', Object.assign({ action: 'save' }, settings || {}));
+    applyProxyInfo(data);
+    proxyState.checked = true;
+    proxyState.available = true;
+    return data;
+  }
+
+  async function resetServerSettings() {
+    if (!A.auth || !A.auth.isAccount || !A.auth.isAccount()) {
+      throw new Error('Sign in to the deployed site to change server AI settings.');
+    }
+    var data = await A.auth.api('./api/ai-settings', { action: 'reset' });
+    applyProxyInfo(data);
+    proxyState.checked = true;
+    proxyState.available = true;
+    return data;
   }
 
   async function extractProxy(opts) {
@@ -502,14 +547,14 @@
 
     if (!images.length) throw new Error('Add at least one photo of the question paper.');
     if (images.length > MAX_IMAGES) throw new Error('Please scan at most ' + MAX_IMAGES + ' pages at a time.');
-    if (typeof fetch !== 'function') throw new Error('This browser cannot call the Cloudflare proxy.');
+    if (typeof fetch !== 'function') throw new Error('This browser cannot call the site proxy.');
 
     if (!proxyState.checked) await refreshProxyStatus();
     if (!proxyState.available) {
-      throw new Error(proxyState.error || 'The Cloudflare proxy is not available on this site.');
+      throw new Error(proxyState.error || 'The site proxy is not available on this site.');
     }
     if (!proxyState.ready) {
-      throw new Error(proxyState.error || 'The Cloudflare proxy is not configured. Add the provider secrets in Cloudflare Pages.');
+      throw new Error(proxyState.error || 'The site proxy is not configured. Add the provider, model and key in Admin console → AI scanning.');
     }
 
     var payload = {
@@ -546,10 +591,10 @@
     if (!response.ok || !data || data.ok === false) {
       proxyState.ready = false;
       proxyState.error = String((data && data.error) || '');
-      throw new Error(proxyState.error || 'The Cloudflare proxy returned HTTP ' + response.status + '.');
+      throw new Error(proxyState.error || 'The site proxy returned HTTP ' + response.status + '.');
     }
     if (!data.text) {
-      throw new Error('The Cloudflare proxy returned an empty response. Try fewer pages or another model.');
+      throw new Error('The site proxy returned an empty response. Try fewer pages or another model.');
     }
 
     onStage('structuring', 0.7);
@@ -665,13 +710,13 @@
   }
 
   async function classifyViaProxy(payload) {
-    if (typeof fetch !== 'function') throw new Error('This browser cannot call the Cloudflare proxy.');
+    if (typeof fetch !== 'function') throw new Error('This browser cannot call the site proxy.');
     if (!proxyState.checked) await refreshProxyStatus();
     if (!proxyState.available) {
-      throw new Error(proxyState.error || 'The Cloudflare proxy is not available on this site.');
+      throw new Error(proxyState.error || 'The site proxy is not available on this site.');
     }
     if (!proxyState.ready) {
-      throw new Error(proxyState.error || 'The Cloudflare proxy is not configured. Add the provider secrets in Cloudflare Pages.');
+      throw new Error(proxyState.error || 'The site proxy is not configured. Add the provider, model and key in Admin console → AI scanning.');
     }
 
     var controller = new AbortController();
@@ -693,7 +738,7 @@
     }
 
     if (!response.ok || !data || data.ok === false) {
-      throw new Error(String((data && data.error) || ('The Cloudflare proxy returned HTTP ' + response.status + '.')));
+      throw new Error(String((data && data.error) || ('The site proxy returned HTTP ' + response.status + '.')));
     }
 
     return {
@@ -891,9 +936,14 @@
       throw new Error('Fetching the server model list needs the deployed http(s) site.');
     }
 
+    var headers = { Accept: 'application/json' };
+    if (A.auth && A.auth.isAdmin && A.auth.isAdmin() && A.auth.token && A.auth.token()) {
+      headers.Authorization = 'Bearer ' + A.auth.token();
+    }
+
     var result = await requestJsonWithTimeout(MODELS_URL, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: headers,
       cache: 'no-store'
     }, MODEL_TIMEOUT, 'this site’s model function', 'Deploy the functions folder with the site.');
 
@@ -903,7 +953,7 @@
         throw new Error('No model endpoint was found at /api/models. Deploy the updated functions folder with the site.');
       }
       if (result.response.status === 503) {
-        throw new Error(detail || 'The model function is online, but the provider secret is missing in Cloudflare Pages.');
+        throw new Error(detail || 'The model function is online, but no provider key is saved yet. Add one in Admin console → AI scanning.');
       }
       throw new Error(detail || 'The model function returned HTTP ' + result.response.status + '.');
     }
@@ -911,7 +961,7 @@
     var data = result.data || {};
     var models = finalizeModels(modelEntries(data), 'pages');
     if (!models.length) {
-      throw new Error('The model function returned an empty list. Check the provider secret in Cloudflare Pages.');
+      throw new Error('The model function returned an empty list. Check the provider and key in Admin console → AI scanning.');
     }
 
     var host = String(data.host || 'this site');
@@ -1095,12 +1145,12 @@
     if (settings.provider === 'pages') {
       return {
         id: 'pages',
-        label: 'Cloudflare proxy',
-        short: 'Cloudflare',
+        label: 'Site proxy',
+        short: 'Site proxy',
         model: proxyState.model || 'server model',
         host: proxyState.host || 'this site',
         endpoint: '',
-        target: proxyState.host || 'Cloudflare Pages',
+        target: proxyState.host || 'this site',
         ready: proxyState.checked ? proxyState.ready : true,
         checking: !proxyState.checked,
         keyRequired: false,

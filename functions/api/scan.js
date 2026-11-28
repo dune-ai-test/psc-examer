@@ -1,8 +1,16 @@
 /* =========================================================
    Padanam — secure scanner proxy for Cloudflare Pages
-   The API key lives in Pages Variables & Secrets, never in
-   the browser bundle. The app posts compressed pages here.
+   The API key lives in the Neon AI settings row (or in Pages
+   Variables & Secrets as a fallback), never in the browser
+   bundle. The app posts compressed pages here.
    ========================================================= */
+
+import {
+  databaseConfig,
+  ensureSchema,
+  readAiSettings,
+  requireAdmin
+} from '../_shared.js';
 
 const MAX_IMAGES = 8;
 const MAX_IMAGE_BASE64 = 6 * 1024 * 1024;
@@ -29,9 +37,13 @@ export const MAIN_TOPICS = [
   'Indian Geography'
 ];
 
-export function onRequest(context) {
+export async function onRequest(context) {
   if (context.request.method === 'GET') {
-    return json(statusPayload(scanConfig(context.env)), 200);
+    const config = await resolveScanConfig(context.env);
+    const admin = await requireAdmin(context.request, context.env).catch(function () {
+      return { user: null };
+    });
+    return json(statusPayload(config, !!admin.user), 200);
   }
   if (context.request.method === 'POST') {
     return handleScan(context);
@@ -40,7 +52,7 @@ export function onRequest(context) {
 }
 
 async function handleScan(context) {
-  const config = scanConfig(context.env);
+  const config = await resolveScanConfig(context.env);
 
   let body;
   try {
@@ -114,13 +126,44 @@ async function handleScan(context) {
   }
 }
 
-export function scanConfig(env) {
-  const provider = String(env.SCAN_PROVIDER || 'gemini').trim().toLowerCase();
+/**
+ * Loads the AI settings saved by the administrator in Neon and merges them
+ * with the optional Cloudflare environment variables. The database row wins;
+ * env vars keep existing deployments working until the admin saves settings.
+ */
+export async function resolveScanConfig(env) {
+  let stored = null;
+  const database = databaseConfig(env);
+  if (database.configured) {
+    try {
+      await ensureSchema(database);
+      stored = await readAiSettings(database);
+    } catch (err) {
+      stored = null;
+    }
+  }
+  return scanConfig(env, stored);
+}
+
+export function scanConfig(env, stored) {
+  stored = stored && typeof stored === 'object' ? stored : null;
+  const storedProvider = stored && (stored.provider === 'openai' || stored.provider === 'gemini')
+    ? stored.provider
+    : '';
+  const provider = String(storedProvider || env.SCAN_PROVIDER || 'gemini').trim().toLowerCase();
+  const source = storedProvider ? 'database' : 'environment';
+  const updatedMs = storedProvider && Number(stored.updatedMs) ? Number(stored.updatedMs) : 0;
+  const updatedBy = storedProvider ? String(stored.updatedBy || '') : '';
+  const savedKey = storedProvider && stored && typeof stored.apiKey === 'string'
+    ? stored.apiKey.trim()
+    : '';
 
   if (provider === 'openai') {
-    const key = String(env.OPENAI_API_KEY || '').trim();
-    const model = String(env.OPENAI_MODEL || '').trim() || DEFAULT_OPENAI_MODEL;
-    const baseUrl = String(env.OPENAI_BASE_URL || '').trim() || DEFAULT_OPENAI_URL;
+    const key = savedKey || String(env.OPENAI_API_KEY || '').trim();
+    const model = String((storedProvider && stored.model) || env.OPENAI_MODEL || '').trim() ||
+      DEFAULT_OPENAI_MODEL;
+    const baseUrl = String((storedProvider && stored.baseUrl) || env.OPENAI_BASE_URL || '').trim() ||
+      DEFAULT_OPENAI_URL;
     let endpoint = '';
     let error = '';
 
@@ -134,7 +177,7 @@ export function scanConfig(env) {
     let ready = !!endpoint && !!model;
     if (ready && /(^|\.)openai\.com$/i.test(host) && !key) {
       ready = false;
-      error = 'Set the OPENAI_API_KEY secret in Cloudflare Pages.';
+      error = 'Add the OpenAI API key in Admin console → AI scanning, or set OPENAI_API_KEY in Cloudflare Pages.';
     }
 
     return {
@@ -144,7 +187,11 @@ export function scanConfig(env) {
       host,
       endpoint,
       key,
-      error: ready ? '' : (error || 'Set OPENAI_BASE_URL and OPENAI_MODEL in Cloudflare Pages.')
+      baseUrl,
+      source,
+      updatedMs,
+      updatedBy,
+      error: ready ? '' : (error || 'Add the OpenAI-compatible base URL and model in Admin console → AI scanning.')
     };
   }
 
@@ -154,31 +201,50 @@ export function scanConfig(env) {
       ready: false,
       model: '',
       host: '',
+      endpoint: '',
       key: '',
+      baseUrl: '',
+      source,
+      updatedMs,
+      updatedBy,
       error: 'SCAN_PROVIDER must be "gemini" or "openai".'
     };
   }
 
-  const key = String(env.GEMINI_API_KEY || '').trim();
-  const model = String(env.GEMINI_MODEL || '').trim() || DEFAULT_GEMINI_MODEL;
+  const key = savedKey || String(env.GEMINI_API_KEY || '').trim();
+  const model = String((storedProvider && stored.model) || env.GEMINI_MODEL || '').trim() ||
+    DEFAULT_GEMINI_MODEL;
   return {
     id: 'gemini',
     ready: !!key,
     model,
     host: 'generativelanguage.googleapis.com',
+    endpoint: '',
     key,
-    error: key ? '' : 'Set the GEMINI_API_KEY secret in Cloudflare Pages.'
+    baseUrl: '',
+    source,
+    updatedMs,
+    updatedBy,
+    error: key ? '' : 'Add the Gemini API key in Admin console → AI scanning, or set GEMINI_API_KEY in Cloudflare Pages.'
   };
 }
 
-function statusPayload(config) {
-  return {
+export function statusPayload(config, admin) {
+  const payload = {
     ready: config.ready,
     provider: config.id,
     model: config.model,
     host: config.host,
-    error: config.error
+    error: config.error,
+    source: config.source || 'environment'
   };
+  if (admin) {
+    payload.baseUrl = config.baseUrl || '';
+    payload.hasKey = !!config.key;
+    payload.updatedMs = config.updatedMs || 0;
+    payload.updatedBy = config.updatedBy || '';
+  }
+  return payload;
 }
 
 async function runTest(config) {
@@ -558,16 +624,16 @@ export function openAIHeaders(apiKey) {
 
 export function openAIEndpoint(baseUrl) {
   const value = String(baseUrl || '').trim();
-  if (!value) throw new Error('OPENAI_BASE_URL is empty.');
+  if (!value) throw new Error('The OpenAI-compatible base URL is empty.');
 
   let url;
   try {
     url = new URL(value);
   } catch (err) {
-    throw new Error('OPENAI_BASE_URL is not a valid URL.');
+    throw new Error('The OpenAI-compatible base URL is not a valid URL.');
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new Error('OPENAI_BASE_URL must start with http:// or https://.');
+    throw new Error('The OpenAI-compatible base URL must start with http:// or https://.');
   }
 
   let path = url.pathname.replace(/\/+$/, '');
@@ -629,12 +695,12 @@ function providerError(status, data, provider) {
       ? 'The provider rejected the model. Check that it exists and supports image input' + (detail ? ': ' + detail : '.')
       : 'The provider rejected the request. Check the model and endpoint' + (detail ? ': ' + detail : '.');
   } else if (status === 401) {
-    message = 'The API key was rejected. Update the secret in Cloudflare Pages.';
+    message = 'The API key was rejected. Update it in Admin console → AI scanning.';
   } else if (status === 403) {
     message = 'The provider refused access. Check the key and model permissions.';
   } else if (status === 404) {
-    message = 'The model or endpoint was not found. Check ' +
-      (provider === 'Gemini' ? 'GEMINI_MODEL.' : 'OPENAI_BASE_URL and OPENAI_MODEL.');
+    message = 'The model or endpoint was not found. Check the model in Admin console → AI scanning' +
+      (provider === 'Gemini' ? '.' : ', and the base URL for this endpoint.');
   } else if (status === 413) {
     message = 'The request was too large. Try fewer or smaller pages.';
   } else if (status === 429) {

@@ -6,7 +6,7 @@
    ========================================================= */
 
 import {
-  scanConfig,
+  resolveScanConfig,
   openAIHeaders,
   openAIModelsEndpoint,
   requestJson,
@@ -27,7 +27,7 @@ export function onRequest(context) {
 }
 
 async function handleModels(context) {
-  const config = scanConfig(context.env);
+  const config = await resolveScanConfig(context.env);
   if (!config.ready) {
     return json({ error: config.error || 'The scanning provider is not configured.' }, 503);
   }
@@ -176,7 +176,7 @@ function listError(status, data, provider) {
       (detail ? ': ' + detail : '.'));
   }
   if (status === 401) {
-    return new Error('The API key was rejected. Update the secret in Cloudflare Pages.');
+    return new Error('The API key was rejected. Update it in Admin console → AI scanning.');
   }
   if (status === 403) {
     return new Error('The provider refused access. Check the key and its API permissions.');
@@ -184,7 +184,7 @@ function listError(status, data, provider) {
   if (status === 404) {
     return new Error(provider === 'gemini'
       ? 'The Gemini models endpoint was not found. Try again later.'
-      : 'The /models endpoint was not found. Check OPENAI_BASE_URL; it usually ends in /v1.');
+      : 'The /models endpoint was not found. Check the base URL in Admin console → AI scanning; it usually ends in /v1.');
   }
   if (status === 429) {
     return new Error('The provider’s rate limit was reached. Wait a minute and try again.');

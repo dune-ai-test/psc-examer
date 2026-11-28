@@ -245,6 +245,8 @@
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
+button.model-chip { font-family: inherit; cursor: pointer; }
+button.model-chip:hover { border-color: var(--indigo); color: var(--indigo); }
 html[data-theme="dark"] .model-chip { background: var(--surface-muted); }
 
 .sync-auto { margin-top: 14px; }

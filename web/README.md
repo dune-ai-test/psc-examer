@@ -45,8 +45,9 @@ browser.
    - **Build output directory:** `web`.
 4. Deploy once.
 5. Open the Pages project → **Settings → Variables and Secrets** and add the
-   account, database and optional scanning secrets described below. Mark every
-   key as **Encrypt**.
+   account and database secrets described below. Mark every key as **Encrypt**.
+   Scanning keys are optional now: the administrator can save them in the admin
+   console after signing in.
 6. Redeploy so the Functions receive the new values.
 7. Open the deployed site, sign in with `ADMIN_USERNAME` and `ADMIN_PASSWORD`,
    and create the learner accounts from **Admin console → Accounts**.
@@ -99,6 +100,10 @@ the browser or the APK.
 
 ### Gemini through Pages
 
+These variables are the fallback. The administrator can save a provider, model
+and key from **Admin console → AI scanning**; that row in Neon takes precedence
+and survives redeploys.
+
 | Name | Value | Secret? |
 | --- | --- | --- |
 | `SCAN_PROVIDER` | `gemini` | no |
@@ -118,7 +123,10 @@ The scan Function at `/api/scan` only accepts small JSON scan requests, uses the
 server-side key, and never returns the key to the browser. A companion Function
 at `/api/models` lists the models available to the configured provider; fetched
 lists stay in memory and are never written to `localStorage`, backups or Neon.
-The `web/_routes.json` file keeps static assets off the Functions invocation path.
+`/api/ai-settings` lets the signed-in administrator read the non-secret status
+and save or reset the database row. The stored key is write-only: it is never
+returned to the browser. The `web/_routes.json` file keeps static assets off the
+Functions invocation path.
 
 > Pages Functions require Git integration or a Wrangler deployment. Direct Upload
 > from the Cloudflare dashboard does not include the `functions/` directory.
@@ -190,8 +198,9 @@ import or delete library content.
   once into the admin scope so previous work is not lost.
 - Neon stores sets, questions, attempts and the profile. The administrator uses
   the workspace `admin:<username>`; each learner uses `user:<id>`.
-- Scan photos, AI keys, the session token and the model catalog are never
-  uploaded.
+- Scan photos, browser-stored AI keys, the session token and the model catalog
+  are never uploaded. A site-proxy key is sent only when the administrator saves
+  it and is stored in `padanam_ai_settings`; it is never returned to a browser.
 
 The legacy `SYNC_TOKEN` path remains available on the server for older
 self-hosted deployments, but the app itself uses the signed-in account. Tables
@@ -203,6 +212,8 @@ are created on the first request:
   and the sync epoch.
 - `padanam_tombstones` records set and attempt revisions used during merges.
 - `padanam_deck_progress` holds learned swipe-deck card states per workspace.
+- `padanam_ai_settings` holds the admin-selected scanner provider, model, base URL
+  and write-only API key. Environment variables are the fallback.
 - `padanam_deck_cards` lives in the optional second deck database and holds only
   scanned deck cards.
 
@@ -216,16 +227,15 @@ bypasses `/api/*`, so account and sync requests always reach the network.
   also scan papers or create sets and questions by hand. Questions keep aligned
   English and Malayalam versions.
 - **Scanning** — photos are resized in the browser (max 1600 px, JPEG) and sent
-  to Gemini, a custom OpenAI-compatible endpoint, or the optional Cloudflare
-  Pages proxy. Choose **Question set** to extract four-option MCQs, or **Deck
-  cards** to extract one question and one answer per card. Nothing is saved
-  until you choose **Create a new set**, **Save into** an existing set, or
-  **Save to decks**. Appending keeps that set’s title, subject and previous
-  questions. Deck mode writes only to the separate scanned deck pool and leaves
-  the library untouched. Until the selected provider is configured, the sample
-  extraction demonstrates the flow.
-  **Fetch models** loads the live catalog from Gemini, the custom endpoint’s
-  `/models` route, or the Pages `/api/models` Function.
+  to Gemini, a custom OpenAI-compatible endpoint, or the optional site proxy.
+  Choose **Question set** to extract four-option MCQs, or **Deck cards** to
+  extract one question and one answer per card. Nothing is saved until you choose
+  **Create a new set**, **Save into** an existing set, or **Save to decks**.
+  Appending keeps that set’s title, subject and previous questions. Deck mode
+  writes only to the separate scanned deck pool and leaves the library untouched.
+  Until the selected provider is configured, the sample extraction demonstrates
+  the flow. **Fetch models** loads the live catalog from Gemini, the custom
+  endpoint’s `/models` route, or the site `/api/models` Function.
 - **Exams** — timed mocks with an absolute deadline (the timer keeps running if
   you leave), untimed practice, question palette, flags, keyboard shortcuts and
   auto-submit at expiry. Attempts store question snapshots, so past results are
@@ -249,10 +259,16 @@ bypasses `/api/*`, so account and sync requests always reach the network.
 ## Scanning providers
 
 The administrator configures scanning in **Admin console → AI scanning**.
-Direct Gemini and custom credentials are stored only in that browser; the
-Cloudflare Pages option keeps the key in Pages secrets. No key is ever included
-in backups or sent to Neon. The Scan page uses the sample extraction until the
-selected provider is configured.
+Direct Gemini and custom credentials are stored only in that browser; the site
+proxy saves its provider, model, base URL and key in the `padanam_ai_settings`
+row in Neon. No key is ever returned to the browser, included in backups or sent
+to the APK. The Scan page uses the sample extraction until the selected provider
+is configured.
+
+Changing the site proxy model no longer needs a redeploy: save it in the admin
+console and the next scan uses it. `SCAN_PROVIDER`, `GEMINI_*` and `OPENAI_*`
+Pages variables remain as a fallback for deployments that have not saved a row
+yet.
 
 ### Gemini
 
@@ -275,11 +291,13 @@ inputs and allow cross-origin (CORS) requests from the app’s origin.
 A key is optional because local servers often do not need one. Only use endpoints
 you trust: the browser sends the compressed page images directly to that address.
 
-### Cloudflare Pages proxy
+### Site proxy (Neon)
 
-Choose **Cloudflare Pages** to send scans to `/api/scan` on the same site. The
-browser sends no API key; the Function reads `GEMINI_API_KEY` or `OPENAI_API_KEY`
-from the encrypted Pages secrets.
+Choose **Site proxy** to send scans to `/api/scan` on the same site. The browser
+sends no API key. The Function reads the provider, model, base URL and key from
+the `padanam_ai_settings` row in Neon, falling back to the Pages variables when
+no row exists. The key is write-only and is never returned by `/api/scan` or
+`/api/ai-settings`.
 
 ## Files
 
@@ -307,7 +325,9 @@ _routes.json             limits Pages Functions to /api/* requests
 ../functions/api/admin.js Pages Function; create users, reset passwords, assign sets
 ../functions/api/sync.js Pages Function; account/legacy Neon sync
 ../functions/api/decks.js Pages Function; scanned deck card read and save
-../functions/api/scan.js Pages Function; reads scan keys from Pages secrets
+../functions/api/scan.js Pages Function; reads the saved AI settings or env fallback
+../functions/api/models.js Pages Function; lists models for the configured provider
+../functions/api/ai-settings.js Pages Function; admin read/save/reset of AI settings
 ```
 
 If you change app files after deploying, bump `CACHE` in `sw.js` so returning
@@ -321,13 +341,14 @@ account-scoped copy of the library in `localStorage`. Passwords are never stored
 in plain text.
 
 Scan photos leave the browser only when the administrator presses **Extract
-questions**, and they go to Google Gemini, the custom endpoint, or the
-Cloudflare Pages Function selected in the admin console. With the Pages proxy,
-Cloudflare forwards them to the configured provider and keeps the API key
-server-side. Photos are never added to the library or uploaded to Neon.
+questions**, and they go to Google Gemini, the custom endpoint, or the site proxy
+selected in the admin console. With the site proxy, Cloudflare forwards them to
+the configured provider and keeps the API key server-side. Photos are never added
+to the library or uploaded to Neon.
 
-AI keys, scan photos, the session token and the fetched model catalog are never
-included in backups or sync payloads.
+AI keys are never returned to the browser in site-proxy mode. AI keys, scan
+photos, the session token and the fetched model catalog are never included in
+backups or sync payloads.
 
 Scanned deck cards saved through **Save to decks** are stored in the optional
 second Neon database and are visible to every signed-in account. Their learned
