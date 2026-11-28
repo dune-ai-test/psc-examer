@@ -95,15 +95,22 @@ navigation graph.
 - A physical device or emulator running Android 8.0 (API 26) or newer
 - A deployed Padanam site with `AUTH_SECRET`, `ADMIN_USERNAME`,
   `ADMIN_PASSWORD` and `NEON_CONNECTION_STRING` configured in Cloudflare Pages.
-  Scan secrets (`GEMINI_API_KEY` or the custom OpenAI-compatible values) are
-  optional; when they are missing the scan screen shows a clear server message.
+  The administrator saves the scan provider, model and key in the web
+  **Admin console → AI scanning**; those values live in Neon and are used by
+  `/api/scan`. `GEMINI_API_KEY`, `OPENAI_API_KEY` and the matching model/base URL
+  variables remain optional fallbacks until a row is saved.
   The optional `DECK_NEON_CONNECTION_STRING` enables the shared scanned deck
   database; without it the app builds decks from the account library only.
 
 ### Build and install
 
-Open the `android/` folder in Android Studio and press Run, or push to the
-`web` branch and let GitHub Actions publish a debug APK to Releases. Locally:
+Open the `android/` folder in Android Studio and press Run for local
+development. Release builds are manual: in GitHub, open **Actions → Build release
+APK → Run workflow** and choose the `web` branch. The workflow signs
+`assembleRelease` and attaches `app-release.apk` to a release; it never runs on a
+push. The debug workflow is kept for older builds but is not used for releases.
+
+For a local build:
 
 ```bash
 cd android
@@ -111,7 +118,8 @@ cd android
 gradlew.bat assembleDebug        # Windows
 ```
 
-The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. A local
+`assembleRelease` needs the signing keystore configured on your machine.
 
 ### First launch
 
